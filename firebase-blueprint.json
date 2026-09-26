@@ -1,0 +1,126 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "A product available in the store",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "category": { "type": "string" },
+        "image": { "type": "string" },
+        "description": { "type": "string" },
+        "sizes": { "type": "array", "items": { "type": "string" } },
+        "colors": { "type": "array", "items": { "type": "string" } },
+        "rating": { "type": "number" },
+        "reviews": { "type": "integer" },
+        "badges": { "type": "array", "items": { "type": "string" } },
+        "datePosted": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "price", "category", "image"]
+    },
+    "SaleRecord": {
+      "title": "Sale Record",
+      "description": "A record of a completed sale/order",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "products": { 
+          "type": "array", 
+          "items": {
+            "type": "object",
+            "properties": {
+              "productId": { "type": "string" },
+              "name": { "type": "string" },
+              "price": { "type": "number" },
+              "quantity": { "type": "integer" },
+              "size": { "type": "string" },
+              "color": { "type": "string" }
+            }
+          }
+        },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "customerEmail": { "type": "string" },
+        "customerAddress": { "type": "string" },
+        "customerCity": { "type": "string" },
+        "customerCountry": { "type": "string" },
+        "customerZip": { "type": "string" },
+        "amount": { "type": "number" },
+        "date": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["Processing", "Shipped", "Delivered", "Cancelled", "Pending Payment", "Confirmed"] },
+        "sellerId": { "type": "string" },
+        "sellerShopName": { "type": "string" }
+      },
+      "required": ["customerName", "amount", "status", "customerCity", "customerCountry", "customerZip"]
+    },
+    "SellerInfo": {
+      "title": "Seller Information",
+      "description": "Details about a seller in the marketplace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "fullName": { "type": "string" },
+        "showName": { "type": "string" },
+        "shopName": { "type": "string" },
+        "email": { "type": "string" },
+        "phone": { "type": "string" },
+        "whatsapp": { "type": "string" },
+        "contactNumber": { "type": "string" },
+        "city": { "type": "string" },
+        "country": { "type": "string" },
+        "location": { "type": "string" },
+        "paymentDetails": { "type": "string" },
+        "category": { "type": "string" },
+        "joinedDate": { "type": "string", "format": "date-time" },
+        "totalSales": { "type": "integer" },
+        "balance": { "type": "number" },
+        "totalEarnings": { "type": "number" },
+        "withdrawnAmount": { "type": "number" },
+        "rating": { "type": "number" },
+        "rank": { "type": "string", "enum": ["Standard", "Silver", "Gold"] },
+        "isVerified": { "type": "boolean" },
+        "verificationStatus": { "type": "string", "enum": ["Pending", "Verified", "Rejected"] },
+        "commissionRate": { "type": "number" },
+        "responseTime": { "type": "string" }
+      },
+      "required": ["fullName", "showName", "email"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "A real-time notification for admin or sellers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["New Order", "New Seller", "Payment Request", "Stock Alert"] },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "targetId": { "type": "string" },
+        "targetRole": { "type": "string", "enum": ["admin", "seller"] },
+        "sellerId": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "title", "message", "targetRole"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Store products available for purchase"
+    },
+    "/sales/{saleId}": {
+      "schema": "SaleRecord",
+      "description": "Store customer orders and transactions"
+    },
+    "/sellers/{sellerId}": {
+      "schema": "SellerInfo",
+      "description": "Store marketplace seller profiles"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "Real-time system notifications"
+    }
+  }
+}

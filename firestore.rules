@@ -1,0 +1,82 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny Catch-All
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isAdmin() { 
+      // Simplified admin check for this applet environment
+      // In production, we'd check a dedicated 'admins' collection
+      return isSignedIn() && (
+        request.auth.token.email == 'sportsarslan199@gmail.com' ||
+        request.auth.token.email == 'worldmarketsupport@gmail.com'
+      );
+    }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // --- Product Validation ---
+    function isValidProduct(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 200
+          && data.price is number && data.price >= 0
+          && data.category is string && data.category.size() > 0
+          && data.image is string && data.image.size() > 0;
+    }
+
+    match /products/{productId} {
+      allow read, list: if true; // Public catalog
+      allow create: if isAdmin() && isValidProduct(incoming()) && isValidId(productId);
+      allow update: if isAdmin() && isValidProduct(incoming());
+      allow delete: if isAdmin();
+    }
+
+    // --- Sale Record Validation ---
+    function isValidSale(data) {
+      return data.customerName is string && data.customerName.size() > 0
+          && data.amount is number && data.amount >= 0
+          && data.status in ['Processing', 'Shipped', 'Delivered', 'Cancelled', 'Pending Payment', 'Confirmed']
+          && (data.sellerId == null || data.sellerId is string);
+    }
+
+    match /sales/{saleId} {
+      allow create: if isValidSale(incoming()) && isValidId(saleId);
+      allow read, list: if isAdmin(); 
+      allow update: if isAdmin() || (isSignedIn() && existing().sellerId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['status']));
+    }
+
+    // --- Seller Validation ---
+    function isValidSeller(data) {
+      return data.fullName is string && data.fullName.size() > 0
+          && data.showName is string && data.showName.size() > 0
+          && data.email is string && data.email.size() > 0;
+    }
+
+    match /sellers/{sellerId} {
+      allow read, list: if true; // Profile is public for routing
+      allow create: if isValidSeller(incoming()) && isValidId(sellerId);
+      allow update: if isAdmin() || (isSignedIn() && request.auth.uid == sellerId);
+      allow delete: if isAdmin();
+    }
+
+    // --- Notifications ---
+    function isValidNotification(data) {
+      return data.type in ['New Order', 'New Seller', 'Payment Request', 'Stock Alert']
+          && data.title is string && data.title.size() > 0
+          && data.targetRole in ['admin', 'seller'];
+    }
+
+    match /notifications/{notificationId} {
+      allow create: if isValidNotification(incoming()) && isValidId(notificationId);
+      allow read, list: if isAdmin() 
+                        || (isSignedIn() && resource.data.sellerId == request.auth.uid)
+                        || (isSignedIn() && resource.data.targetRole == 'seller' && resource.data.sellerId == request.auth.uid);
+      allow update: if isAdmin() || (isSignedIn() && existing().sellerId == request.auth.uid);
+    }
+  }
+}

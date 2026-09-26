@@ -1,0 +1,12 @@
+{
+  "name": "W-LORD MARKET",
+  "short_name": "W-LORD",
+  "description": "Global sportswear manufacturing and professional e-commerce platform.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#2563eb",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
