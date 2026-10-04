@@ -845,6 +845,11 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 <li><Link to="/shipping-policy" className="text-gray-400 hover:text-white text-sm font-bold transition-colors">Shipping Policy</Link></li>
                 <li><Link to="/refund-policy" className="text-gray-400 hover:text-white text-sm font-bold transition-colors">Refund & Returns</Link></li>
                 <li><Link to="/privacy-policy" className="text-gray-400 hover:text-white text-sm font-bold transition-colors">Privacy Policy</Link></li>
+                <li className="pt-2">
+                  <a href="mailto:worldmarketsupport@gmail.com" className="text-blue-400 hover:text-white text-xs font-black tracking-wider transition-colors break-all">
+                    worldmarketsupport@gmail.com
+                  </a>
+                </li>
               </ul>
             </div>
           </div>

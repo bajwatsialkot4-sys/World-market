@@ -63,7 +63,7 @@ const PrivacyPolicy: React.FC = () => {
           <section className="bg-gray-50 p-10 rounded-3xl border border-gray-100">
             <h2 className="text-xl font-black uppercase tracking-tighter mb-4">Privacy Concerns</h2>
             <p className="text-sm text-gray-500 font-bold mb-4">If you have any questions or concerns regarding your privacy, please contact our data protection officer.</p>
-            <p className="text-blue-600 font-black uppercase tracking-widest text-xs">privacy@worldmarket.com</p>
+            <a href="mailto:worldmarketsupport@gmail.com" className="text-blue-600 font-black uppercase tracking-widest text-xs hover:underline">worldmarketsupport@gmail.com</a>
           </section>
         </div>
       </div>

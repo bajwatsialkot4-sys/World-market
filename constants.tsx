@@ -47,7 +47,7 @@ export const SELLERS: SellerInfo[] = [
     id: 'seller-1',
     fullName: 'Global Logistics Hub',
     whatsapp: '923187536795',
-    email: 'support@wlord-market.com',
+    email: 'worldmarketsupport@gmail.com',
     country: 'United States',
     city: 'New York',
     contactNumber: '+1 (555) 000-0000',

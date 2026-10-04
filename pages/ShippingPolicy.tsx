@@ -63,7 +63,7 @@ const ShippingPolicy: React.FC = () => {
           <section className="bg-gray-900 p-12 rounded-[3rem] text-white text-center">
             <h2 className="text-2xl font-black uppercase tracking-tighter mb-4">Bulk Shipping</h2>
             <p className="text-gray-400 font-medium mb-8">For large orders or wholesale inquiries, please contact our bulk shipping department.</p>
-            <p className="text-blue-500 font-black uppercase tracking-widest text-xs">bulk@worldmarket.com</p>
+            <a href="mailto:worldmarketsupport@gmail.com" className="text-blue-500 font-black uppercase tracking-widest text-xs hover:underline">worldmarketsupport@gmail.com</a>
           </section>
         </div>
       </div>
