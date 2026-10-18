@@ -60,6 +60,21 @@ const Terms: React.FC = () => {
             </p>
           </section>
 
+          <section>
+            <h2 className="text-2xl font-black uppercase tracking-tighter mb-6">5. Seller Earnings and Manual Payout Policy</h2>
+            <div className="space-y-4 text-gray-600 leading-relaxed font-medium">
+              <p>
+                W-LORD Market maintains strict control over seller earnings and disbursements to guarantee transactional security:
+              </p>
+              <ul className="list-disc pl-6 space-y-2 text-sm">
+                <li><strong className="text-gray-900">Order Completion & Customer Payment:</strong> Seller earnings are manually reviewed and officially recorded only after the customer's order has reached Completed status and payment is verified.</li>
+                <li><strong className="text-gray-900">Minimum Payout Threshold:</strong> Sellers must reach a minimum available balance of <span className="text-blue-600 font-black">$30.00 USD</span> before a payout can be initiated or recorded.</li>
+                <li><strong className="text-gray-900">Manual Administrative Verification:</strong> All disbursements are reviewed and manually executed by authorized market administrators via designated payment channels. Automated arbitrary withdrawals are strictly prevented.</li>
+                <li><strong className="text-gray-900">Permanent Audit Trail:</strong> Each earnings and payout transaction generates an immutable record with reference timestamps, admin logs, and transaction IDs visible in the seller's dashboard.</li>
+              </ul>
+            </div>
+          </section>
+
           <section className="bg-gray-50 p-10 rounded-3xl border border-gray-100">
             <h2 className="text-xl font-black uppercase tracking-tighter mb-4">Questions?</h2>
             <p className="text-sm text-gray-500 font-bold mb-4">If you have any questions regarding our terms and conditions, please contact our legal department.</p>
