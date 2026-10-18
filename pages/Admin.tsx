@@ -1,9 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Plus, Trash2, Edit2, ShieldCheck, Mail, LogIn, Bell, User as UserIcon, Phone, MapPin, Globe } from 'lucide-react';
+import { 
+  X, Plus, Trash2, Edit2, ShieldCheck, Mail, LogIn, Bell, User as UserIcon, 
+  Phone, MapPin, Globe, DollarSign, CheckCircle2, AlertTriangle, ArrowRight, 
+  RefreshCw, Check, AlertCircle, FileText, Send, Undo2, Archive, CreditCard
+} from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { CATEGORIES, ADMIN_EMAILS } from '../constants';
-import { Product } from '../types';
+import { Product, SaleRecord, SellerInfo, SellerPayoutRecord } from '../types';
 import { auth } from '../services/firebase';
 import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, User } from 'firebase/auth';
 
@@ -19,7 +23,9 @@ const hashPassword = async (password: string) => {
 const Admin: React.FC = () => {
   const { 
     products, sales, customers, sellers, notifications, unreadNotificationsCount,
-    addProduct, updateProduct, deleteProduct, updateSaleStatus, formatPrice, markNotificationAsRead 
+    addProduct, updateProduct, deleteProduct, updateSaleStatus, deleteSale, archiveSale,
+    sellerEarnings, sellerPayouts, addSellerEarning, addSellerPayout, reverseSellerPayout, getSellerFinancials,
+    formatPrice, markNotificationAsRead 
   } = useStore();
   const [activeTab, setActiveTab] = useState<'overview' | 'inventory' | 'sales' | 'customers' | 'settings' | 'withdrawals'>('overview');
   const [user, setUser] = useState<User | null>(null);
@@ -33,6 +39,41 @@ const Admin: React.FC = () => {
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [selectedSeller, setSelectedSeller] = useState<any>(null);
   const [showNotifications, setShowNotifications] = useState(false);
+
+  // Toast feedback
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
+
+  // Order Action States
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+  const [orderToComplete, setOrderToComplete] = useState<SaleRecord | null>(null);
+  const [orderToCancel, setOrderToCancel] = useState<SaleRecord | null>(null);
+  const [orderToDelete, setOrderToDelete] = useState<SaleRecord | null>(null);
+
+  // Earnings Modal State
+  const [earningSeller, setEarningSeller] = useState<SellerInfo | null>(null);
+  const [earningForm, setEarningForm] = useState({ orderId: '', amount: '', adminNote: '', allowDuplicate: false });
+  const [earningLoading, setEarningLoading] = useState(false);
+
+  // Payout Modal State
+  const [payoutSeller, setPayoutSeller] = useState<SellerInfo | null>(null);
+  const [payoutForm, setPayoutForm] = useState({
+    amount: '',
+    payoutDate: new Date().toISOString().split('T')[0],
+    paymentMethod: 'International Bank Transfer',
+    transactionReference: '',
+    adminNote: '',
+    confirmedSent: false
+  });
+  const [payoutLoading, setPayoutLoading] = useState(false);
+
+  // Payout Reversal Modal State
+  const [payoutToReverse, setPayoutToReverse] = useState<SellerPayoutRecord | null>(null);
+  const [reversalReason, setReversalReason] = useState('');
+  const [reversalLoading, setReversalLoading] = useState(false);
 
   // New Product State
   const [isAddingProduct, setIsAddingProduct] = useState(false);
@@ -133,6 +174,197 @@ const Admin: React.FC = () => {
       alert('Product published to Cloud Firestore successfully!');
     } catch (err: any) {
       alert(`Error: ${err.message}`);
+    }
+  };
+
+  const handleStatusChange = async (orderId: string, newStatus: SaleRecord['status']) => {
+    if (updatingOrderId) return;
+    setUpdatingOrderId(orderId);
+    try {
+      await updateSaleStatus(orderId, newStatus);
+      showToast(`Order #${orderId.slice(-6)} status updated to "${newStatus}"`, 'success');
+      if (selectedOrder && selectedOrder.id === orderId) {
+        setSelectedOrder((prev: any) => prev ? { ...prev, status: newStatus } : null);
+      }
+    } catch (err: any) {
+      showToast(err.message || "Failed to update order status", 'error');
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  const handleConfirmCompletion = async (order: SaleRecord) => {
+    if (updatingOrderId) return;
+    setUpdatingOrderId(order.id);
+    try {
+      await updateSaleStatus(order.id, 'Completed');
+      showToast(`Order #${order.id.slice(-6)} marked as Completed. Customer payment confirmed.`, 'success');
+      if (selectedOrder && selectedOrder.id === order.id) {
+        setSelectedOrder((prev: any) => prev ? { ...prev, status: 'Completed' } : null);
+      }
+      setOrderToComplete(null);
+    } catch (err: any) {
+      showToast(err.message || "Failed to complete order", 'error');
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  const handleConfirmCancellation = async (order: SaleRecord) => {
+    if (updatingOrderId) return;
+    setUpdatingOrderId(order.id);
+    try {
+      await updateSaleStatus(order.id, 'Cancelled');
+      showToast(`Order #${order.id.slice(-6)} has been cancelled.`, 'success');
+      if (selectedOrder && selectedOrder.id === order.id) {
+        setSelectedOrder((prev: any) => prev ? { ...prev, status: 'Cancelled' } : null);
+      }
+      setOrderToCancel(null);
+    } catch (err: any) {
+      showToast(err.message || "Failed to cancel order", 'error');
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  const handleConfirmDelete = async (order: SaleRecord) => {
+    if (updatingOrderId) return;
+    setUpdatingOrderId(order.id);
+    try {
+      await deleteSale(order.id);
+      showToast(`Order #${order.id.slice(-6)} deleted permanently.`, 'success');
+      if (selectedOrder?.id === order.id) setSelectedOrder(null);
+      setOrderToDelete(null);
+    } catch (err: any) {
+      showToast(err.message || "Failed to delete order", 'error');
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  const handleConfirmArchive = async (order: SaleRecord) => {
+    if (updatingOrderId) return;
+    setUpdatingOrderId(order.id);
+    try {
+      await archiveSale(order.id);
+      showToast(`Order #${order.id.slice(-6)} safely archived and cancelled.`, 'success');
+      if (selectedOrder?.id === order.id) {
+        setSelectedOrder((prev: any) => prev ? { ...prev, status: 'Cancelled', isArchived: true } : null);
+      }
+      setOrderToDelete(null);
+    } catch (err: any) {
+      showToast(err.message || "Failed to archive order", 'error');
+    } finally {
+      setUpdatingOrderId(null);
+    }
+  };
+
+  const handleSaveEarnings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!earningSeller) return;
+    const amountNum = parseFloat(earningForm.amount);
+    if (isNaN(amountNum) || amountNum <= 0) {
+      showToast('Earnings amount must be greater than $0.00 USD.', 'error');
+      return;
+    }
+    if (!earningForm.orderId.trim()) {
+      showToast('Please enter or select a related Order ID.', 'error');
+      return;
+    }
+
+    const trimmedOrderId = earningForm.orderId.trim();
+    const existing = sellerEarnings.find(e => e.sellerId === earningSeller.id && e.orderId.toLowerCase() === trimmedOrderId.toLowerCase());
+    if (existing && !earningForm.allowDuplicate) {
+      showToast(`An earnings entry ($${existing.amount.toFixed(2)}) already exists for Order #${trimmedOrderId}. Check the box to confirm this authorized adjustment.`, 'error');
+      return;
+    }
+
+    setEarningLoading(true);
+    try {
+      await addSellerEarning({
+        sellerId: earningSeller.id,
+        sellerName: earningSeller.shopName || earningSeller.fullName,
+        orderId: trimmedOrderId,
+        amount: amountNum,
+        adminNote: earningForm.adminNote.trim() || undefined,
+        createdByAdminEmail: user?.email || 'admin'
+      });
+      showToast(`Saved $${amountNum.toFixed(2)} USD earnings for ${earningSeller.shopName || earningSeller.fullName}.`, 'success');
+      setEarningSeller(null);
+      setEarningForm({ orderId: '', amount: '', adminNote: '', allowDuplicate: false });
+    } catch (err: any) {
+      showToast(err.message || "Failed to save earnings", 'error');
+    } finally {
+      setEarningLoading(false);
+    }
+  };
+
+  const handleSavePayout = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!payoutSeller) return;
+    const amountNum = parseFloat(payoutForm.amount);
+    const { availableBalance } = getSellerFinancials(payoutSeller.id);
+
+    if (isNaN(amountNum) || amountNum <= 0) {
+      showToast('Payout amount must be greater than $0.00 USD.', 'error');
+      return;
+    }
+    if (amountNum > availableBalance + 0.001) {
+      showToast(`Payout amount ($${amountNum.toFixed(2)}) cannot exceed available balance ($${availableBalance.toFixed(2)}).`, 'error');
+      return;
+    }
+    if (!payoutForm.confirmedSent) {
+      showToast('Please check the confirmation box indicating payment was sent.', 'error');
+      return;
+    }
+
+    setPayoutLoading(true);
+    try {
+      await addSellerPayout({
+        sellerId: payoutSeller.id,
+        sellerName: payoutSeller.shopName || payoutSeller.fullName,
+        amount: amountNum,
+        payoutDate: payoutForm.payoutDate,
+        paymentMethod: payoutForm.paymentMethod,
+        transactionReference: payoutForm.transactionReference.trim() || undefined,
+        adminNote: payoutForm.adminNote.trim() || undefined,
+        createdByAdminEmail: user?.email || 'admin',
+        emailDeliveryStatus: 'Sent'
+      });
+      showToast(`Recorded $${amountNum.toFixed(2)} payout as Paid. Notification sent to Seller Panel.`, 'success');
+      setPayoutSeller(null);
+      setPayoutForm({
+        amount: '',
+        payoutDate: new Date().toISOString().split('T')[0],
+        paymentMethod: 'International Bank Transfer',
+        transactionReference: '',
+        adminNote: '',
+        confirmedSent: false
+      });
+    } catch (err: any) {
+      showToast(err.message || "Failed to record payout", 'error');
+    } finally {
+      setPayoutLoading(false);
+    }
+  };
+
+  const handleReversePayout = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!payoutToReverse) return;
+    if (!reversalReason.trim()) {
+      showToast('Please enter an authorized reason for this reversal.', 'error');
+      return;
+    }
+    setReversalLoading(true);
+    try {
+      await reverseSellerPayout(payoutToReverse.id, reversalReason.trim(), user?.email || 'admin');
+      showToast(`Payout #${payoutToReverse.id.slice(-6)} has been safely reversed. Available balance restored.`, 'success');
+      setPayoutToReverse(null);
+      setReversalReason('');
+    } catch (err: any) {
+      showToast(err.message || "Failed to reverse payout", 'error');
+    } finally {
+      setReversalLoading(false);
     }
   };
 
@@ -377,35 +609,157 @@ const Admin: React.FC = () => {
                           </div>
                         </td>
                         <td className="px-6 md:px-10 py-6">
-                          <span className={`px-4 py-2 rounded-full text-[8px] font-black uppercase tracking-widest ${
-                            s.status === 'Confirmed' ? 'bg-green-50 text-green-600' : 
-                            s.status === 'Pending Payment' ? 'bg-orange-50 text-orange-600' : 
-                            'bg-blue-50 text-blue-600'
+                          <span className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                            s.status === 'Completed' ? 'bg-green-100 text-green-700' : 
+                            s.status === 'Shipped' ? 'bg-purple-100 text-purple-700' :
+                            s.status === 'Processing' ? 'bg-blue-100 text-blue-700' :
+                            s.status === 'Cancelled' ? 'bg-red-100 text-red-700' :
+                            s.status === 'Confirmed' ? 'bg-emerald-100 text-emerald-700' :
+                            s.status === 'Pending Payment' ? 'bg-amber-100 text-amber-700' :
+                            'bg-gray-100 text-gray-700'
                           }`}>
                             {s.status}
                           </span>
                         </td>
-                        <td className="px-6 md:px-10 py-6 text-right pr-12">
-                          <div className="flex justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                            {s.status === 'Pending Payment' && (
+                        <td className="px-6 md:px-10 py-6 text-right pr-6 md:pr-12">
+                          <div className="flex flex-wrap justify-end items-center gap-1.5">
+                            {/* New Order / Pending Payment stage */}
+                            {(s.status === 'New Order' || s.status === 'Pending Payment') && (
+                              <>
+                                <button 
+                                  disabled={updatingOrderId === s.id}
+                                  onClick={() => handleStatusChange(s.id, 'Processing')}
+                                  className="bg-blue-600 text-white px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider hover:bg-black transition-all disabled:opacity-50"
+                                  title="Mark as Processing"
+                                >
+                                  Process
+                                </button>
+                                <button 
+                                  disabled={updatingOrderId === s.id}
+                                  onClick={() => setOrderToCancel(s)}
+                                  className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all disabled:opacity-50"
+                                  title="Cancel Order"
+                                >
+                                  Cancel
+                                </button>
+                              </>
+                            )}
+                            {/* Confirmed stage */}
+                            {s.status === 'Confirmed' && (
+                              <>
+                                <button 
+                                  disabled={updatingOrderId === s.id}
+                                  onClick={() => handleStatusChange(s.id, 'Processing')}
+                                  className="bg-blue-600 text-white px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider hover:bg-black transition-all disabled:opacity-50"
+                                >
+                                  Process
+                                </button>
+                                <button 
+                                  disabled={updatingOrderId === s.id}
+                                  onClick={() => handleStatusChange(s.id, 'Shipped')}
+                                  className="bg-purple-600 text-white px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider hover:bg-black transition-all disabled:opacity-50"
+                                >
+                                  Ship
+                                </button>
+                                <button 
+                                  disabled={updatingOrderId === s.id}
+                                  onClick={() => setOrderToCancel(s)}
+                                  className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all disabled:opacity-50"
+                                >
+                                  Cancel
+                                </button>
+                              </>
+                            )}
+                            {/* Processing stage */}
+                            {s.status === 'Processing' && (
+                              <>
+                                <button 
+                                  disabled={updatingOrderId === s.id}
+                                  onClick={() => handleStatusChange(s.id, 'Shipped')}
+                                  className="bg-purple-600 text-white px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider hover:bg-black transition-all disabled:opacity-50"
+                                >
+                                  Ship
+                                </button>
+                                <button 
+                                  disabled={updatingOrderId === s.id}
+                                  onClick={() => setOrderToCancel(s)}
+                                  className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all disabled:opacity-50"
+                                >
+                                  Cancel
+                                </button>
+                              </>
+                            )}
+                            {/* Shipped stage */}
+                            {s.status === 'Shipped' && (
+                              <>
+                                <button 
+                                  disabled={updatingOrderId === s.id}
+                                  onClick={() => setOrderToComplete(s)}
+                                  className="bg-green-600 text-white px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider hover:bg-black transition-all disabled:opacity-50 shadow-sm"
+                                >
+                                  Complete
+                                </button>
+                                <button 
+                                  disabled={updatingOrderId === s.id}
+                                  onClick={() => setOrderToCancel(s)}
+                                  className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all disabled:opacity-50"
+                                >
+                                  Cancel
+                                </button>
+                              </>
+                            )}
+                            {/* Completed stage */}
+                            {s.status === 'Completed' && (
                               <button 
-                                onClick={() => updateSaleStatus(s.id, 'Confirmed')}
-                                className="bg-green-600 text-white px-4 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest shadow-lg hover:scale-105 transition-all"
+                                onClick={() => {
+                                  const matchingSeller = sellers.find(sel => sel.id === s.sellerId || sel.shopName === s.sellerShopName) || {
+                                    id: s.sellerId || 'admin',
+                                    fullName: s.sellerShopName || 'Seller',
+                                    shopName: s.sellerShopName || 'Seller Store',
+                                    email: '',
+                                    whatsapp: '',
+                                    contactNumber: '',
+                                    country: '',
+                                    city: '',
+                                    paymentDetails: '',
+                                    showName: s.sellerShopName || 'seller',
+                                    rank: 'Standard',
+                                    rating: 5,
+                                    totalSales: 0,
+                                    joinedDate: new Date().toISOString(),
+                                    responseTime: '24h',
+                                    isVerified: true,
+                                    verificationStatus: 'Verified',
+                                    businessType: 'Business'
+                                  } as SellerInfo;
+                                  setEarningSeller(matchingSeller);
+                                  setEarningForm({
+                                    orderId: s.id,
+                                    amount: (s.amount * 0.7).toFixed(2),
+                                    adminNote: `Profit share for Order #${s.id.slice(-6)}`,
+                                    allowDuplicate: false
+                                  });
+                                }}
+                                className="bg-emerald-600 text-white px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider hover:bg-black transition-all shadow-sm"
+                                title="Add Manual Seller Earnings"
                               >
-                                Confirm
+                                + Earnings
                               </button>
                             )}
-                            {s.status === 'Confirmed' && (
+                            {/* Cancelled stage */}
+                            {s.status === 'Cancelled' && (
                               <button 
-                                onClick={() => updateSaleStatus(s.id, 'Completed')}
-                                className="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest shadow-lg hover:scale-105 transition-all"
+                                disabled={updatingOrderId === s.id}
+                                onClick={() => setOrderToDelete(s)}
+                                className="bg-red-600 text-white px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider hover:bg-black transition-all disabled:opacity-50"
+                                title="Delete or Archive Order"
                               >
-                                Complete Order
+                                Delete
                               </button>
                             )}
                             <button 
                               onClick={() => setSelectedOrder(s)}
-                              className="bg-black text-white px-4 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest shadow-lg hover:scale-105 transition-all"
+                              className="bg-black text-white px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider hover:bg-blue-600 transition-all shadow-sm"
                             >
                               Details
                             </button>
@@ -504,6 +858,93 @@ const Admin: React.FC = () => {
                       <p className="text-lg font-black italic uppercase tracking-tighter">Total Due</p>
                       <p className="text-3xl font-black italic tracking-tighter text-blue-600">{formatPrice(selectedOrder.amount)}</p>
                     </div>
+
+                    <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100 space-y-3">
+                      <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Order Management Actions</p>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedOrder.status !== 'Processing' && selectedOrder.status !== 'Completed' && selectedOrder.status !== 'Cancelled' && (
+                          <button
+                            disabled={updatingOrderId === selectedOrder.id}
+                            onClick={() => handleStatusChange(selectedOrder.id, 'Processing')}
+                            className="bg-blue-600 hover:bg-black text-white px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all disabled:opacity-50"
+                          >
+                            Mark Processing
+                          </button>
+                        )}
+                        {selectedOrder.status !== 'Shipped' && selectedOrder.status !== 'Completed' && selectedOrder.status !== 'Cancelled' && (
+                          <button
+                            disabled={updatingOrderId === selectedOrder.id}
+                            onClick={() => handleStatusChange(selectedOrder.id, 'Shipped')}
+                            className="bg-purple-600 hover:bg-black text-white px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all disabled:opacity-50"
+                          >
+                            Mark Shipped
+                          </button>
+                        )}
+                        {selectedOrder.status !== 'Completed' && selectedOrder.status !== 'Cancelled' && (
+                          <button
+                            disabled={updatingOrderId === selectedOrder.id}
+                            onClick={() => setOrderToComplete(selectedOrder)}
+                            className="bg-green-600 hover:bg-black text-white px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all disabled:opacity-50"
+                          >
+                            Mark Completed
+                          </button>
+                        )}
+                        {selectedOrder.status !== 'Cancelled' && (
+                          <button
+                            disabled={updatingOrderId === selectedOrder.id}
+                            onClick={() => setOrderToCancel(selectedOrder)}
+                            className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all disabled:opacity-50"
+                          >
+                            Cancel Order
+                          </button>
+                        )}
+                        {selectedOrder.status === 'Completed' && (
+                          <button
+                            onClick={() => {
+                              const matchingSeller = sellers.find(sel => sel.id === selectedOrder.sellerId || sel.shopName === selectedOrder.sellerShopName) || {
+                                id: selectedOrder.sellerId || 'admin',
+                                fullName: selectedOrder.sellerShopName || 'Seller',
+                                shopName: selectedOrder.sellerShopName || 'Seller Store',
+                                email: '',
+                                whatsapp: '',
+                                contactNumber: '',
+                                country: '',
+                                city: '',
+                                paymentDetails: '',
+                                showName: selectedOrder.sellerShopName || 'seller',
+                                rank: 'Standard',
+                                rating: 5,
+                                totalSales: 0,
+                                joinedDate: new Date().toISOString(),
+                                responseTime: '24h',
+                                isVerified: true,
+                                verificationStatus: 'Verified',
+                                businessType: 'Business'
+                              } as SellerInfo;
+                              setEarningSeller(matchingSeller);
+                              setEarningForm({
+                                orderId: selectedOrder.id,
+                                amount: (selectedOrder.amount * 0.7).toFixed(2),
+                                adminNote: `Profit share for Order #${selectedOrder.id.slice(-6)}`,
+                                allowDuplicate: false
+                              });
+                            }}
+                            className="bg-emerald-600 hover:bg-black text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all shadow-md"
+                          >
+                            + Add Seller Earnings
+                          </button>
+                        )}
+                        {selectedOrder.status === 'Cancelled' && (
+                          <button
+                            disabled={updatingOrderId === selectedOrder.id}
+                            onClick={() => setOrderToDelete(selectedOrder)}
+                            className="bg-red-600 hover:bg-black text-white px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all disabled:opacity-50"
+                          >
+                            Delete / Archive
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
                   <div className="p-8 pt-0 flex gap-4">
                      <button onClick={() => setSelectedOrder(null)} className="flex-grow bg-black text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-blue-600 transition-all">Close</button>
@@ -530,6 +971,7 @@ const Admin: React.FC = () => {
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-100">
                       <th className="px-6 md:px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Seller & Shop</th>
+                      <th className="px-6 md:px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Financial Overview</th>
                       <th className="px-6 md:px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">WhatsApp / Contact</th>
                       <th className="px-6 md:px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Location</th>
                       <th className="px-6 md:px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400 text-center">Rank</th>
@@ -538,49 +980,106 @@ const Admin: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {sellers.map(s => (
-                      <tr key={s.id} className="hover:bg-gray-50/50 transition-colors group">
-                        <td className="px-6 md:px-10 py-6">
-                          <div className="flex flex-col">
-                            <span className="text-sm font-black uppercase tracking-tighter text-gray-900">{s.fullName}</span>
-                            <span className="text-[10px] text-blue-600 font-bold uppercase tracking-widest">{s.shopName || s.showName}</span>
-                            <span className="text-[9px] text-gray-400 font-bold uppercase truncate max-w-[150px]">{s.email}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 md:px-10 py-6">
-                          <div className="flex flex-col">
-                             <span className="text-xs font-black text-green-600 tracking-tight">{s.whatsapp}</span>
-                             <span className="text-[9px] text-gray-400 font-bold uppercase">{s.contactNumber}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 md:px-10 py-6 text-xs font-bold text-gray-900 uppercase">{s.location || `${s.city}, ${s.country}`}</td>
-                        <td className="px-6 md:px-10 py-6 text-center">
-                          <span className={`px-4 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest ${
-                            s.rank === 'Gold' ? 'bg-yellow-50 text-yellow-600' : 'bg-gray-50 text-gray-600'
-                          }`}>
-                            {s.rank}
-                          </span>
-                        </td>
-                        <td className="px-6 md:px-10 py-6">
-                          <span className={`px-4 py-2 rounded-full text-[8px] font-black uppercase tracking-widest ${
-                            s.isVerified ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-600'
-                          }`}>
-                            {s.isVerified ? 'VERIFIED' : 'PENDING'}
-                          </span>
-                        </td>
-                        <td className="px-6 md:px-10 py-6 text-right pr-12">
-                          <div className="flex justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button 
-                              onClick={() => setSelectedSeller(s)}
-                              className="bg-black text-white px-4 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest shadow-lg hover:scale-105 transition-all"
-                            >
-                              Details
-                            </button>
-                            <button className="text-blue-600 text-[10px] font-black uppercase tracking-widest hover:underline">Edit</button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {sellers.map(s => {
+                      const fin = getSellerFinancials(s.id);
+                      return (
+                        <tr key={s.id} className="hover:bg-gray-50/50 transition-colors group">
+                          <td className="px-6 md:px-10 py-6">
+                            <div className="flex flex-col">
+                              <span className="text-sm font-black uppercase tracking-tighter text-gray-900">{s.fullName}</span>
+                              <span className="text-[10px] text-blue-600 font-bold uppercase tracking-widest">{s.shopName || s.showName}</span>
+                              <span className="text-[9px] text-gray-400 font-bold uppercase truncate max-w-[150px]">{s.email}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 md:px-10 py-6">
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[9px] text-gray-400 uppercase font-bold">Earned:</span>
+                                <span className="text-xs font-black text-gray-900">${fin.totalEarnings.toFixed(2)}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[9px] text-gray-400 uppercase font-bold">Paid:</span>
+                                <span className="text-xs font-bold text-purple-600">${fin.totalPaid.toFixed(2)}</span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[9px] text-gray-400 uppercase font-bold">Balance:</span>
+                                <span className="text-xs font-black text-green-600">${fin.availableBalance.toFixed(2)}</span>
+                                {fin.isEligibleForPayout && (
+                                  <span className="bg-green-100 text-green-800 text-[8px] font-black px-1.5 py-0.5 rounded">≥$30</span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 md:px-10 py-6">
+                            <div className="flex flex-col">
+                               <span className="text-xs font-black text-green-600 tracking-tight">{s.whatsapp}</span>
+                               <span className="text-[9px] text-gray-400 font-bold uppercase">{s.contactNumber}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 md:px-10 py-6 text-xs font-bold text-gray-900 uppercase">{s.location || `${s.city}, ${s.country}`}</td>
+                          <td className="px-6 md:px-10 py-6 text-center">
+                            <span className={`px-4 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest ${
+                              s.rank === 'Gold' ? 'bg-yellow-50 text-yellow-600' : 'bg-gray-50 text-gray-600'
+                            }`}>
+                              {s.rank}
+                            </span>
+                          </td>
+                          <td className="px-6 md:px-10 py-6">
+                            <span className={`px-4 py-2 rounded-full text-[8px] font-black uppercase tracking-widest ${
+                              s.isVerified ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-600'
+                            }`}>
+                              {s.isVerified ? 'VERIFIED' : 'PENDING'}
+                            </span>
+                          </td>
+                          <td className="px-6 md:px-10 py-6 text-right pr-6 md:pr-12">
+                            <div className="flex flex-wrap justify-end gap-1.5">
+                              {/* Add Earnings button */}
+                              <button 
+                                onClick={() => {
+                                  setEarningSeller(s);
+                                  setEarningForm({ orderId: '', amount: '', adminNote: '', allowDuplicate: false });
+                                }}
+                                className="bg-emerald-600 hover:bg-black text-white px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all shadow-sm"
+                                title="Manually record seller earnings"
+                              >
+                                + Earnings
+                              </button>
+                              
+                              {/* Record Payout button */}
+                              <button 
+                                disabled={!fin.isEligibleForPayout}
+                                onClick={() => {
+                                  setPayoutSeller(s);
+                                  setPayoutForm({
+                                    amount: fin.availableBalance.toFixed(2),
+                                    payoutDate: new Date().toISOString().split('T')[0],
+                                    paymentMethod: 'International Bank Transfer',
+                                    transactionReference: '',
+                                    adminNote: '',
+                                    confirmedSent: false
+                                  });
+                                }}
+                                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all shadow-sm ${
+                                  fin.isEligibleForPayout 
+                                    ? 'bg-blue-600 hover:bg-black text-white' 
+                                    : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
+                                }`}
+                                title={fin.isEligibleForPayout ? 'Record manual payout' : 'Available balance is below $30.00 minimum threshold'}
+                              >
+                                Record Payout
+                              </button>
+
+                              <button 
+                                onClick={() => setSelectedSeller(s)}
+                                className="bg-black text-white px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-purple-600 transition-all shadow-sm"
+                              >
+                                Details
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -663,41 +1162,122 @@ const Admin: React.FC = () => {
         )}
 
         {activeTab === 'withdrawals' && (
-          <div className="space-y-8">
-            <h3 className="text-3xl font-black italic tracking-tighter uppercase">Withdrawal <span className="text-blue-600 underline">Requests</span></h3>
-            <div className="bg-white rounded-[3rem] shadow-xl border border-gray-100 overflow-hidden">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="bg-gray-50">
-                    <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Date</th>
-                    <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Seller</th>
-                    <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Amount</th>
-                    <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Method</th>
-                    <th className="px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {sellers.slice(0, 3).map((s, i) => (
-                    <tr key={s.id} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="px-10 py-6 text-xs font-bold text-gray-500 uppercase">March {28 - i}, 2024</td>
-                      <td className="px-10 py-6">
-                        <div className="flex flex-col">
-                          <span className="text-sm font-black uppercase tracking-tighter text-gray-900">{s.fullName}</span>
-                          <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{s.email}</span>
-                        </div>
-                      </td>
-                      <td className="px-10 py-6 text-sm font-black text-gray-900">{formatPrice(1250)}</td>
-                      <td className="px-10 py-6 text-xs font-bold text-gray-500 uppercase">{s.paymentDetails}</td>
-                      <td className="px-10 py-6">
-                        <div className="flex gap-4">
-                          <button className="bg-green-600 text-white px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-green-600/20">Approve</button>
-                          <button className="bg-red-50 text-red-600 px-6 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-red-100 transition-all">Reject</button>
-                        </div>
-                      </td>
+          <div className="space-y-8 animate-fadeIn">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+              <div>
+                <h3 className="text-3xl font-black italic tracking-tighter uppercase">Seller <span className="text-blue-600 underline">Payouts</span></h3>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">Manual Payout Records & Reversal Management</p>
+              </div>
+            </div>
+
+            {/* Payout Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Total Paid Out</span>
+                <p className="text-2xl font-black text-gray-900 mt-2">
+                  ${sellerPayouts.filter(p => p.status === 'Paid').reduce((sum, p) => sum + (Number(p.amount) || 0), 0).toFixed(2)} USD
+                </p>
+              </div>
+              <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Disbursement Records</span>
+                <p className="text-2xl font-black text-blue-600 mt-2">
+                  {sellerPayouts.length} Recorded
+                </p>
+              </div>
+              <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Reversals</span>
+                <p className="text-2xl font-black text-amber-600 mt-2">
+                  {sellerPayouts.filter(p => p.status === 'Reversed').length} Corrected
+                </p>
+              </div>
+            </div>
+
+            {/* Payout Table */}
+            <div className="bg-white rounded-[2rem] md:rounded-[3rem] shadow-xl border border-gray-100 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-100 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                      <th className="px-6 md:px-10 py-6">Date</th>
+                      <th className="px-6 md:px-10 py-6">Seller Details</th>
+                      <th className="px-6 md:px-10 py-6">Amount</th>
+                      <th className="px-6 md:px-10 py-6">Payment Method</th>
+                      <th className="px-6 md:px-10 py-6">Reference / Note</th>
+                      <th className="px-6 md:px-10 py-6">Status</th>
+                      <th className="px-6 md:px-10 py-6 text-right pr-12">Action</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50 text-xs">
+                    {sellerPayouts.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-10 py-16 text-center text-gray-400">
+                          <p className="text-xs font-black uppercase tracking-widest">No seller payout records yet.</p>
+                          <p className="text-[10px] font-medium text-gray-400 mt-1">Payouts are manually recorded via the Seller Management tab when a seller's available balance is at least $30.00 USD.</p>
+                        </td>
+                      </tr>
+                    ) : (
+                      sellerPayouts.map(p => {
+                        const sellerObj = sellers.find(s => s.id === p.sellerId);
+                        return (
+                          <tr key={p.id} className="hover:bg-gray-50/50 transition-colors">
+                            <td className="px-6 md:px-10 py-6 font-bold text-gray-500 whitespace-nowrap">
+                              {p.payoutDate || new Date(p.createdAt).toLocaleDateString()}
+                            </td>
+                            <td className="px-6 md:px-10 py-6">
+                              <div className="flex flex-col">
+                                <span className="font-black text-gray-900 uppercase">{p.sellerName || sellerObj?.shopName || 'Seller'}</span>
+                                <span className="text-[9px] text-gray-400 uppercase tracking-wider font-mono">UID: {p.sellerId}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 md:px-10 py-6 font-black text-sm text-gray-900 whitespace-nowrap">
+                              ${p.amount.toFixed(2)} USD
+                            </td>
+                            <td className="px-6 md:px-10 py-6 font-bold text-gray-700">
+                              {p.paymentMethod}
+                            </td>
+                            <td className="px-6 md:px-10 py-6">
+                              <div className="flex flex-col max-w-[200px]">
+                                {p.transactionReference && (
+                                  <span className="font-mono text-[10px] text-blue-600 truncate">Ref: {p.transactionReference}</span>
+                                )}
+                                {p.adminNote && (
+                                  <span className="text-[10px] text-gray-500 truncate">{p.adminNote}</span>
+                                )}
+                                {p.reversalReason && (
+                                  <span className="text-[9px] text-red-500 font-bold truncate">Reversed: {p.reversalReason}</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 md:px-10 py-6 whitespace-nowrap">
+                              <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                p.status === 'Paid' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'
+                              }`}>
+                                {p.status}
+                              </span>
+                            </td>
+                            <td className="px-6 md:px-10 py-6 text-right pr-6 md:pr-12">
+                              {p.status === 'Paid' ? (
+                                <button 
+                                  onClick={() => {
+                                    setPayoutToReverse(p);
+                                    setReversalReason('');
+                                  }}
+                                  className="bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all"
+                                  title="Reverse this payout entry and restore seller balance"
+                                >
+                                  Reverse
+                                </button>
+                              ) : (
+                                <span className="text-[9px] text-gray-400 uppercase font-black">Restored</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -957,6 +1537,442 @@ const Admin: React.FC = () => {
             )}
           </div>
         )}
+
+      {/* Modals & Dialogs */}
+
+      {/* Toast Alert */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-[300] px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 text-white text-xs font-black uppercase tracking-wider animate-slideUp ${
+          toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'
+        }`}>
+          {toast.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+          <span>{toast.message}</span>
+        </div>
+      )}
+
+      {/* Complete Order Confirmation Modal */}
+      {orderToComplete && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[250] flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-lg w-full overflow-hidden p-8 animate-scaleIn">
+            <div className="flex justify-between items-start mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-green-50 text-green-600 flex items-center justify-center">
+                <CheckCircle2 size={28} />
+              </div>
+              <button onClick={() => setOrderToComplete(null)} className="p-2 text-gray-400 hover:text-black">
+                <X size={20} />
+              </button>
+            </div>
+            <h3 className="text-2xl font-black italic uppercase tracking-tight text-gray-900 mb-2">
+              Confirm Order <span className="text-green-600">Completion</span>
+            </h3>
+            <p className="text-xs text-gray-500 font-medium leading-relaxed mb-6">
+              Marking Order <strong className="text-gray-900 font-black">#{orderToComplete.id.slice(-6)}</strong> ({formatPrice(orderToComplete.amount)}) for customer <strong className="text-gray-900">{orderToComplete.customerName}</strong> as Completed.
+            </p>
+
+            <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 text-amber-800 text-[11px] font-bold leading-relaxed mb-6">
+              ⚠️ <strong className="font-black">Notice:</strong> Marking this order as Completed verifies customer payment and fulfillment. This will synchronize with both Admin and Seller panels. It will <strong className="underline">not</strong> automatically create a seller payout.
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                disabled={updatingOrderId === orderToComplete.id}
+                onClick={() => handleConfirmCompletion(orderToComplete)}
+                className="flex-1 bg-green-600 hover:bg-black text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-green-600/20 disabled:opacity-50"
+              >
+                {updatingOrderId === orderToComplete.id ? 'Updating...' : 'Confirm Completed'}
+              </button>
+              <button
+                onClick={() => setOrderToComplete(null)}
+                className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Order Confirmation Modal */}
+      {orderToCancel && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[250] flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-lg w-full overflow-hidden p-8 animate-scaleIn">
+            <div className="flex justify-between items-start mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center">
+                <AlertCircle size={28} />
+              </div>
+              <button onClick={() => setOrderToCancel(null)} className="p-2 text-gray-400 hover:text-black">
+                <X size={20} />
+              </button>
+            </div>
+            <h3 className="text-2xl font-black italic uppercase tracking-tight text-gray-900 mb-2">
+              Confirm Order <span className="text-red-600">Cancellation</span>
+            </h3>
+            <p className="text-xs text-gray-500 font-medium leading-relaxed mb-6">
+              Are you sure you want to cancel Order <strong className="text-gray-900 font-black">#{orderToCancel.id.slice(-6)}</strong> for customer <strong className="text-gray-900">{orderToCancel.customerName}</strong>? Status will be updated to Cancelled and synchronized immediately across all panels.
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                disabled={updatingOrderId === orderToCancel.id}
+                onClick={() => handleConfirmCancellation(orderToCancel)}
+                className="flex-1 bg-red-600 hover:bg-black text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-red-600/20 disabled:opacity-50"
+              >
+                {updatingOrderId === orderToCancel.id ? 'Cancelling...' : 'Confirm Cancellation'}
+              </button>
+              <button
+                onClick={() => setOrderToCancel(null)}
+                className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all"
+              >
+                Keep Order
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete / Archive Order Modal */}
+      {orderToDelete && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[250] flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-lg w-full overflow-hidden p-8 animate-scaleIn">
+            <div className="flex justify-between items-start mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center">
+                <Trash2 size={28} />
+              </div>
+              <button onClick={() => setOrderToDelete(null)} className="p-2 text-gray-400 hover:text-black">
+                <X size={20} />
+              </button>
+            </div>
+            <h3 className="text-2xl font-black italic uppercase tracking-tight text-gray-900 mb-2">
+              Order History <span className="text-red-600">Protection</span>
+            </h3>
+            <p className="text-xs text-gray-500 font-medium leading-relaxed mb-6">
+              Order <strong className="text-gray-900 font-black">#{orderToDelete.id.slice(-6)}</strong> has been cancelled. To preserve transactional audit history, we recommend safe archival instead of permanent destruction.
+            </p>
+
+            <div className="space-y-3">
+              <button
+                disabled={updatingOrderId === orderToDelete.id}
+                onClick={() => handleConfirmArchive(orderToDelete)}
+                className="w-full bg-blue-600 hover:bg-black text-white py-3.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-md"
+              >
+                Safe Archive (Recommended)
+              </button>
+              <button
+                disabled={updatingOrderId === orderToDelete.id}
+                onClick={() => handleConfirmDelete(orderToDelete)}
+                className="w-full bg-red-600 hover:bg-black text-white py-3.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-md"
+              >
+                Permanent Delete
+              </button>
+              <button
+                onClick={() => setOrderToDelete(null)}
+                className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Manual Seller Earnings Modal */}
+      {earningSeller && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[250] flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-xl w-full overflow-hidden p-8 animate-scaleIn">
+            <div className="flex justify-between items-start mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <DollarSign size={28} />
+              </div>
+              <button onClick={() => setEarningSeller(null)} className="p-2 text-gray-400 hover:text-black">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <h3 className="text-2xl font-black italic uppercase tracking-tight text-gray-900 mb-1">
+              Add Seller <span className="text-emerald-600">Earnings</span>
+            </h3>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-6">
+              Manual Administrator Financial Credit
+            </p>
+
+            <form onSubmit={handleSaveEarnings} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-100 text-xs">
+                <div>
+                  <span className="text-[9px] font-black uppercase tracking-wider text-gray-400">Seller Name</span>
+                  <p className="font-black text-gray-900 truncate mt-0.5">{earningSeller.shopName || earningSeller.fullName}</p>
+                </div>
+                <div>
+                  <span className="text-[9px] font-black uppercase tracking-wider text-gray-400">Seller ID</span>
+                  <p className="font-mono text-gray-700 truncate mt-0.5">{earningSeller.id}</p>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-gray-500 tracking-wider">Related Order ID</label>
+                <input
+                  required
+                  placeholder="e.g. sale_123 or select from list"
+                  className="w-full bg-gray-50 border p-3 rounded-xl font-mono text-xs outline-none focus:ring-2 focus:ring-emerald-500"
+                  value={earningForm.orderId}
+                  onChange={(e) => setEarningForm({ ...earningForm, orderId: e.target.value })}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-gray-500 tracking-wider">Earnings Amount in USD ($)</label>
+                <input
+                  required
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  placeholder="0.00"
+                  className="w-full bg-gray-50 border p-3 rounded-xl font-black text-base outline-none focus:ring-2 focus:ring-emerald-500 text-emerald-600"
+                  value={earningForm.amount}
+                  onChange={(e) => setEarningForm({ ...earningForm, amount: e.target.value })}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-gray-500 tracking-wider">Optional Admin Note</label>
+                <textarea
+                  rows={2}
+                  placeholder="e.g. Confirmed completed order payment & fulfillment"
+                  className="w-full bg-gray-50 border p-3 rounded-xl font-medium text-xs outline-none focus:ring-2 focus:ring-emerald-500"
+                  value={earningForm.adminNote}
+                  onChange={(e) => setEarningForm({ ...earningForm, adminNote: e.target.value })}
+                />
+              </div>
+
+              {/* Duplicate check warning */}
+              {earningForm.orderId && sellerEarnings.some(e => e.sellerId === earningSeller.id && e.orderId.toLowerCase() === earningForm.orderId.trim().toLowerCase()) && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-2">
+                  <p className="text-[10px] font-bold text-amber-800">
+                    ⚠️ An earnings entry already exists for Order #{earningForm.orderId.trim()}.
+                  </p>
+                  <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-800">
+                    <input
+                      type="checkbox"
+                      checked={earningForm.allowDuplicate}
+                      onChange={(e) => setEarningForm({ ...earningForm, allowDuplicate: e.target.checked })}
+                      className="rounded"
+                    />
+                    <span>I confirm this authorized financial adjustment/correction</span>
+                  </label>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="submit"
+                  disabled={earningLoading}
+                  className="flex-1 bg-emerald-600 hover:bg-black text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-emerald-600/20 disabled:opacity-50"
+                >
+                  {earningLoading ? 'Saving Entry...' : 'Save Earnings Entry'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEarningSeller(null)}
+                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Seller Payout Modal */}
+      {payoutSeller && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[250] flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-xl w-full overflow-hidden p-8 animate-scaleIn">
+            <div className="flex justify-between items-start mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                <CreditCard size={28} />
+              </div>
+              <button onClick={() => setPayoutSeller(null)} className="p-2 text-gray-400 hover:text-black">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <h3 className="text-2xl font-black italic uppercase tracking-tight text-gray-900 mb-1">
+              Record Seller <span className="text-blue-600">Payout</span>
+            </h3>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-6">
+              Manual Administrative Disbursement Record
+            </p>
+
+            {(() => {
+              const fin = getSellerFinancials(payoutSeller.id);
+              return (
+                <form onSubmit={handleSavePayout} className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-100 text-xs">
+                    <div>
+                      <span className="text-[9px] font-black uppercase tracking-wider text-gray-400">Seller Name</span>
+                      <p className="font-black text-gray-900 truncate mt-0.5">{payoutSeller.shopName || payoutSeller.fullName}</p>
+                    </div>
+                    <div>
+                      <span className="text-[9px] font-black uppercase tracking-wider text-gray-400">Available Balance</span>
+                      <p className="font-black text-green-600 text-sm mt-0.5">${fin.availableBalance.toFixed(2)} USD</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 text-blue-900 text-[11px] font-bold">
+                    ℹ️ <strong className="font-black">Policy Notice:</strong> Minimum payout threshold is $30.00 USD. Ensure funds have been transferred to the seller's registered account.
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-gray-500 tracking-wider">Payout Amount ($ USD)</label>
+                      <input
+                        required
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        max={fin.availableBalance}
+                        className="w-full bg-gray-50 border p-3 rounded-xl font-black text-base outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                        value={payoutForm.amount}
+                        onChange={(e) => setPayoutForm({ ...payoutForm, amount: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-gray-500 tracking-wider">Payout Date</label>
+                      <input
+                        required
+                        type="date"
+                        className="w-full bg-gray-50 border p-3 rounded-xl font-bold text-xs outline-none focus:ring-2 focus:ring-blue-500"
+                        value={payoutForm.payoutDate}
+                        onChange={(e) => setPayoutForm({ ...payoutForm, payoutDate: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-gray-500 tracking-wider">Payment Method</label>
+                      <select
+                        className="w-full bg-gray-50 border p-3 rounded-xl font-bold text-xs outline-none focus:ring-2 focus:ring-blue-500"
+                        value={payoutForm.paymentMethod}
+                        onChange={(e) => setPayoutForm({ ...payoutForm, paymentMethod: e.target.value })}
+                      >
+                        <option value="International Bank Transfer">Bank Transfer (Wire / IBAN)</option>
+                        <option value="PayPal">PayPal</option>
+                        <option value="JazzCash">JazzCash</option>
+                        <option value="EasyPaisa">EasyPaisa</option>
+                        <option value="Wise">Wise</option>
+                        <option value="Cash / Manual">Cash / Manual</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-gray-500 tracking-wider">Transaction Reference / ID</label>
+                      <input
+                        placeholder="e.g. TXN9988224"
+                        className="w-full bg-gray-50 border p-3 rounded-xl font-mono text-xs outline-none focus:ring-2 focus:ring-blue-500"
+                        value={payoutForm.transactionReference}
+                        onChange={(e) => setPayoutForm({ ...payoutForm, transactionReference: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black uppercase text-gray-500 tracking-wider">Optional Admin Note</label>
+                    <textarea
+                      rows={2}
+                      placeholder="e.g. Monthly payout disbursement"
+                      className="w-full bg-gray-50 border p-3 rounded-xl font-medium text-xs outline-none focus:ring-2 focus:ring-blue-500"
+                      value={payoutForm.adminNote}
+                      onChange={(e) => setPayoutForm({ ...payoutForm, adminNote: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="pt-2">
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-800">
+                      <input
+                        type="checkbox"
+                        checked={payoutForm.confirmedSent}
+                        onChange={(e) => setPayoutForm({ ...payoutForm, confirmedSent: e.target.checked })}
+                        className="rounded"
+                      />
+                      <span>I confirm that this payment has been sent to the seller's account.</span>
+                    </label>
+                  </div>
+
+                  <div className="flex gap-3 pt-4">
+                    <button
+                      type="submit"
+                      disabled={payoutLoading || !payoutForm.confirmedSent}
+                      className="flex-1 bg-blue-600 hover:bg-black text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-blue-600/20 disabled:opacity-50"
+                    >
+                      {payoutLoading ? 'Recording Payout...' : 'Confirm & Record Payout'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPayoutSeller(null)}
+                      className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* Payout Reversal Modal */}
+      {payoutToReverse && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[250] flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-lg w-full overflow-hidden p-8 animate-scaleIn">
+            <div className="flex justify-between items-start mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                <AlertCircle size={28} />
+              </div>
+              <button onClick={() => setPayoutToReverse(null)} className="p-2 text-gray-400 hover:text-black">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <h3 className="text-2xl font-black italic uppercase tracking-tight text-gray-900 mb-1">
+              Reverse Payout <span className="text-amber-600">Entry</span>
+            </h3>
+            <p className="text-xs text-gray-500 font-medium leading-relaxed mb-4">
+              Reversing this payout of <strong className="text-gray-900 font-black">${payoutToReverse.amount.toFixed(2)} USD</strong> will restore the seller's available balance and record an authorized audit note.
+            </p>
+
+            <form onSubmit={handleReversePayout} className="space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black uppercase text-gray-500 tracking-wider">Reason for Reversal</label>
+                <textarea
+                  required
+                  rows={3}
+                  placeholder="e.g. Accidental payout entry, wrong bank account, or payment returned by bank"
+                  className="w-full bg-gray-50 border p-3 rounded-xl font-medium text-xs outline-none focus:ring-2 focus:ring-amber-500"
+                  value={reversalReason}
+                  onChange={(e) => setReversalReason(e.target.value)}
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="submit"
+                  disabled={reversalLoading}
+                  className="flex-1 bg-amber-600 hover:bg-black text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-amber-600/20 disabled:opacity-50"
+                >
+                  {reversalLoading ? 'Reversing...' : 'Confirm Reversal'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPayoutToReverse(null)}
+                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );

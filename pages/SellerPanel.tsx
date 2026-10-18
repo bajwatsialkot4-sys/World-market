@@ -1,11 +1,10 @@
-
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { 
   BarChart3, Box, ShoppingBag, Bell, Plus, Settings, 
   ChevronRight, ArrowUpRight, ArrowDownRight, Package,
   Clock, CheckCircle2, AlertCircle, X, Search, User as UserIcon,
-  LogOut, Trash2
+  LogOut, Trash2, DollarSign, Wallet, CreditCard, AlertTriangle, Edit3
 } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { CATEGORIES } from '../constants';
@@ -16,16 +15,36 @@ const SellerPanel: React.FC = () => {
   const navigate = useNavigate();
   const { 
     sales, products, sellers, notifications, unreadNotificationsCount,
+    sellerEarnings, sellerPayouts, getSellerFinancials, updateSeller,
     formatPrice, addProduct, updateSaleStatus, markNotificationAsRead 
   } = useStore();
 
-  const [activeTab, setActiveTab] = useState<'orders' | 'notifications'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'earnings' | 'notifications'>('orders');
   const [isAddingProduct, setIsAddingProduct] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
 
   const seller = sellers.find(s => s.id === id || s.showName === id);
   const sellerProducts = products.filter(p => p.sellerId === seller?.id);
   const sellerSales = sales.filter(s => s.sellerId === seller?.id);
+  
+  // Real-time seller financial data
+  const sellerEarningsList = seller ? sellerEarnings.filter(e => e.sellerId === seller.id) : [];
+  const sellerPayoutsList = seller ? sellerPayouts.filter(p => p.sellerId === seller.id) : [];
+  const financials = seller 
+    ? getSellerFinancials(seller.id) 
+    : { totalEarnings: 0, totalPaid: 0, availableBalance: 0, pendingPayout: 0, isEligibleForPayout: false };
+
+  // Bank / Payment details edit state
+  const [isEditingPaymentDetails, setIsEditingPaymentDetails] = useState(false);
+  const [paymentDetailsInput, setPaymentDetailsInput] = useState('');
+  const [paymentSaveLoading, setPaymentSaveLoading] = useState(false);
+  const [paymentFeedback, setPaymentFeedback] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (seller?.paymentDetails) {
+      setPaymentDetailsInput(seller.paymentDetails);
+    }
+  }, [seller?.paymentDetails]);
 
   const [newProduct, setNewProduct] = useState({
     name: '',
@@ -40,8 +59,8 @@ const SellerPanel: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Simulate loading for professional feel
-    const timer = setTimeout(() => setIsLoading(false), 800);
+    // Simulate brief loading for smooth UX
+    const timer = setTimeout(() => setIsLoading(false), 500);
     return () => clearTimeout(timer);
   }, []);
 
@@ -98,6 +117,25 @@ const SellerPanel: React.FC = () => {
     }
   };
 
+  const handleSavePaymentDetails = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!seller) return;
+    setPaymentSaveLoading(true);
+    setPaymentFeedback(null);
+    try {
+      await updateSeller(seller.id, {
+        paymentDetails: paymentDetailsInput.trim()
+      });
+      setPaymentFeedback('Payment details updated successfully.');
+      setIsEditingPaymentDetails(false);
+      setTimeout(() => setPaymentFeedback(null), 4000);
+    } catch (err: any) {
+      setPaymentFeedback(`Failed to update: ${err.message}`);
+    } finally {
+      setPaymentSaveLoading(false);
+    }
+  };
+
   const sellerNotifications = notifications.filter(n => n.sellerId === seller.id || n.targetRole === 'seller');
   const unreadCount = sellerNotifications.filter(n => !n.isRead).length;
 
@@ -116,6 +154,7 @@ const SellerPanel: React.FC = () => {
            <button 
             onClick={() => setActiveTab('notifications')} 
             className={`relative p-3 rounded-xl transition-all ${activeTab === 'notifications' ? 'bg-blue-600 text-white shadow-lg' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            title="Notifications"
            >
             <Bell size={20} />
             {unreadCount > 0 && (
@@ -135,7 +174,7 @@ const SellerPanel: React.FC = () => {
       </header>
 
       {/* Main Content Areas */}
-      <main className="max-w-4xl mx-auto w-full p-4 md:p-8 space-y-8">
+      <main className="max-w-5xl mx-auto w-full p-4 md:p-8 space-y-8">
         
         {/* Quick Actions Bar */}
         <section className="bg-black text-white p-6 rounded-3xl shadow-2xl flex flex-col md:flex-row justify-between items-center gap-6">
@@ -152,23 +191,33 @@ const SellerPanel: React.FC = () => {
         </section>
 
         {/* Tab Selection */}
-        <div className="flex gap-4 border-b border-gray-200">
+        <div className="flex gap-2 md:gap-4 border-b border-gray-200 overflow-x-auto">
            <button 
             onClick={() => setActiveTab('orders')}
-            className={`px-6 py-4 text-xs font-black uppercase tracking-widest border-b-2 transition-all ${activeTab === 'orders' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400 opacity-60'}`}
+            className={`px-6 py-4 text-xs font-black uppercase tracking-widest border-b-2 transition-all whitespace-nowrap ${activeTab === 'orders' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400 opacity-60'}`}
            >
              My Orders ({sellerSales.length})
            </button>
            <button 
+            onClick={() => setActiveTab('earnings')}
+            className={`px-6 py-4 text-xs font-black uppercase tracking-widest border-b-2 transition-all whitespace-nowrap flex items-center gap-2 ${activeTab === 'earnings' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400 opacity-60'}`}
+           >
+             <span>Earnings & Payouts</span>
+             <span className="bg-green-100 text-green-700 text-[10px] px-2 py-0.5 rounded-full font-black">
+               ${financials.availableBalance.toFixed(2)}
+             </span>
+           </button>
+           <button 
             onClick={() => setActiveTab('notifications')}
-            className={`px-6 py-4 text-xs font-black uppercase tracking-widest border-b-2 transition-all ${activeTab === 'notifications' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400 opacity-60'}`}
+            className={`px-6 py-4 text-xs font-black uppercase tracking-widest border-b-2 transition-all whitespace-nowrap ${activeTab === 'notifications' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-400 opacity-60'}`}
            >
              Notifications ({unreadCount})
            </button>
         </div>
 
         <section className="animate-fadeIn">
-          {activeTab === 'orders' ? (
+          {/* ORDERS TAB */}
+          {activeTab === 'orders' && (
             <div className="space-y-4">
               {sellerSales.length === 0 ? (
                 <div className="bg-white p-20 rounded-[2rem] border border-dashed text-center">
@@ -176,33 +225,359 @@ const SellerPanel: React.FC = () => {
                    <p className="text-xs font-black uppercase text-gray-400 tracking-widest">No orders received yet</p>
                 </div>
               ) : (
-                sellerSales.map(order => (
-                  <div key={order.id} className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm flex flex-col md:flex-row justify-between items-center gap-6 group hover:shadow-xl hover:border-blue-200 transition-all">
-                    <div className="flex items-center gap-4 w-full md:w-auto">
-                       <div className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center text-blue-600 shrink-0">
-                          <ShoppingBag size={24}/>
-                       </div>
-                       <div>
-                          <p className="text-sm font-black uppercase text-gray-900">Buyer: Private Customer</p>
-                          <div className="flex gap-2 mt-1">
-                            <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">[Details Protected]</span>
-                            <span className="text-[10px] hidden"></span>
-                          </div>
-                          <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase">ID: #{order.id.slice(-8)} • {new Date(order.date).toLocaleDateString()}</p>
-                       </div>
+                sellerSales.map(order => {
+                  const relatedEarning = sellerEarningsList.find(e => e.orderId === order.id);
+                  return (
+                    <div key={order.id} className="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm flex flex-col md:flex-row justify-between items-center gap-6 group hover:shadow-xl hover:border-blue-200 transition-all">
+                      <div className="flex items-center gap-4 w-full md:w-auto">
+                         <div className="w-14 h-14 bg-gray-50 rounded-2xl flex items-center justify-center text-blue-600 shrink-0">
+                            <ShoppingBag size={24}/>
+                         </div>
+                         <div>
+                            <p className="text-sm font-black uppercase text-gray-900">Buyer: Private Customer</p>
+                            <div className="flex gap-2 mt-1">
+                              <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">[Details Protected]</span>
+                            </div>
+                            <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase">ID: #{order.id.slice(-8)} • {new Date(order.date).toLocaleDateString()}</p>
+                            
+                            {/* Earnings Badge if order is completed */}
+                            {order.status === 'Completed' && (
+                              <div className="mt-2">
+                                {relatedEarning ? (
+                                  <span className="inline-flex items-center gap-1 bg-green-50 text-green-700 border border-green-200 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider">
+                                    <CheckCircle2 size={10} /> Earnings Credited: ${relatedEarning.amount.toFixed(2)} USD
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider">
+                                    <Clock size={10} /> Completed • Awaiting Manual Admin Earnings Entry
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                         </div>
+                      </div>
+                      <div className="flex items-center justify-between md:justify-end gap-x-8 w-full md:w-auto border-t md:border-t-0 pt-4 md:pt-0">
+                         <div className="text-left md:text-right">
+                            <p className="text-sm font-black text-blue-600">{formatPrice(order.amount)}</p>
+                            <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-full ${
+                              order.status === 'Completed' ? 'bg-green-100 text-green-700' :
+                              order.status === 'Shipped' ? 'bg-purple-100 text-purple-700' :
+                              order.status === 'Processing' ? 'bg-blue-100 text-blue-700' :
+                              order.status === 'Cancelled' ? 'bg-red-100 text-red-700' :
+                              order.status === 'Confirmed' ? 'bg-emerald-100 text-emerald-700' :
+                              'bg-orange-100 text-orange-700'
+                            }`}>
+                              {order.status}
+                            </span>
+                         </div>
+                         <button onClick={() => setSelectedOrder(order)} className="bg-gray-900 text-white px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all">
+                           Details
+                         </button>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between md:justify-end gap-x-8 w-full md:w-auto border-t md:border-t-0 pt-4 md:pt-0">
-                       <div className="text-left md:text-right">
-                          <p className="text-sm font-black text-blue-600">{formatPrice(order.amount)}</p>
-                          <span className={`text-[9px] font-black uppercase ${order.status === 'Confirmed' ? 'text-green-500' : 'text-orange-500'}`}>{order.status}</span>
-                       </div>
-                       <button onClick={() => setSelectedOrder(order)} className="bg-gray-900 text-white px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-600 transition-all">Details</button>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
-          ) : (
+          )}
+
+          {/* EARNINGS & PAYOUTS DASHBOARD TAB */}
+          {activeTab === 'earnings' && (
+            <div className="space-y-8 animate-fadeIn">
+              {/* Financial Stats Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+                {/* Total Earnings */}
+                <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col justify-between">
+                  <div>
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Total Earnings</span>
+                      <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                        <DollarSign size={16} />
+                      </div>
+                    </div>
+                    <p className="text-2xl font-black text-gray-900">${financials.totalEarnings.toFixed(2)} <span className="text-xs font-bold text-gray-400">USD</span></p>
+                  </div>
+                  <p className="text-[9px] font-bold text-gray-400 uppercase mt-4">Lifetime verified earnings</p>
+                </div>
+
+                {/* Available Balance */}
+                <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col justify-between">
+                  <div>
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Available Balance</span>
+                      <div className="w-8 h-8 rounded-xl bg-green-50 text-green-600 flex items-center justify-center">
+                        <Wallet size={16} />
+                      </div>
+                    </div>
+                    <p className="text-2xl font-black text-green-600">${financials.availableBalance.toFixed(2)} <span className="text-xs font-bold text-green-700">USD</span></p>
+                  </div>
+                  <div className="mt-4">
+                    {financials.isEligibleForPayout ? (
+                      <span className="bg-green-100 text-green-800 text-[8px] font-black px-2 py-1 rounded-md uppercase tracking-wider">
+                        Eligible for Payout (≥ $30)
+                      </span>
+                    ) : (
+                      <span className="bg-gray-100 text-gray-600 text-[8px] font-black px-2 py-1 rounded-md uppercase tracking-wider">
+                        Threshold: $30 min
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Pending Payout */}
+                <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col justify-between">
+                  <div>
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Pending Payout</span>
+                      <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                        <Clock size={16} />
+                      </div>
+                    </div>
+                    <p className="text-2xl font-black text-amber-600">${financials.pendingPayout.toFixed(2)} <span className="text-xs font-bold text-amber-700">USD</span></p>
+                  </div>
+                  <p className="text-[9px] font-bold text-gray-400 uppercase mt-4">
+                    {financials.isEligibleForPayout ? 'Ready for admin disbursement' : 'Pending balance threshold'}
+                  </p>
+                </div>
+
+                {/* Total Paid */}
+                <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm flex flex-col justify-between">
+                  <div>
+                    <div className="flex justify-between items-center mb-3">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Total Paid</span>
+                      <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                        <CreditCard size={16} />
+                      </div>
+                    </div>
+                    <p className="text-2xl font-black text-purple-600">${financials.totalPaid.toFixed(2)} <span className="text-xs font-bold text-purple-700">USD</span></p>
+                  </div>
+                  <p className="text-[9px] font-bold text-gray-400 uppercase mt-4">Total disbursed to date</p>
+                </div>
+              </div>
+
+              {/* Policy Threshold Banner */}
+              <div className="bg-white p-6 rounded-3xl border border-blue-100 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center shrink-0">
+                    <AlertCircle size={24} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-gray-900">Minimum Payout: $30.00 USD</h4>
+                    <p className="text-xs text-gray-500 font-medium mt-1 leading-relaxed">
+                      Earnings are manually reviewed and entered by the administrator after orders are completed and customer payments are confirmed. Payouts are manually disbursed once your available balance reaches at least $30.00 USD.
+                    </p>
+                  </div>
+                </div>
+                <div className="shrink-0">
+                  <Link 
+                    to="/privacy-policy" 
+                    className="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline"
+                  >
+                    View Policy →
+                  </Link>
+                </div>
+              </div>
+
+              {/* Bank & Payment Account Details Section */}
+              <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm">
+                <div className="flex justify-between items-center mb-6">
+                  <div>
+                    <h3 className="text-lg font-black uppercase tracking-tight text-gray-900 flex items-center gap-2">
+                      <CreditCard size={18} className="text-blue-600" /> Payout & Bank Account Details
+                    </h3>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">
+                      Account where administrator disburses your confirmed earnings
+                    </p>
+                  </div>
+                  {!isEditingPaymentDetails && (
+                    <button 
+                      onClick={() => setIsEditingPaymentDetails(true)}
+                      className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 transition-all"
+                    >
+                      <Edit3 size={12} /> Edit Details
+                    </button>
+                  )}
+                </div>
+
+                {paymentFeedback && (
+                  <div className="mb-4 p-4 rounded-xl text-xs font-bold bg-blue-50 text-blue-800 border border-blue-100">
+                    {paymentFeedback}
+                  </div>
+                )}
+
+                {isEditingPaymentDetails ? (
+                  <form onSubmit={handleSavePaymentDetails} className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest">
+                        Bank Details / PayPal / EasyPaisa / JazzCash
+                      </label>
+                      <textarea
+                        required
+                        rows={3}
+                        placeholder="e.g. Bank Name: Standard Chartered, IBAN: PK..., Title: Muhammad Arsalan, OR PayPal: seller@gmail.com"
+                        className="w-full bg-gray-50 border p-4 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                        value={paymentDetailsInput}
+                        onChange={(e) => setPaymentDetailsInput(e.target.value)}
+                      />
+                    </div>
+                    <div className="flex gap-3">
+                      <button 
+                        type="submit" 
+                        disabled={paymentSaveLoading}
+                        className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest shadow-md hover:bg-black transition-all"
+                      >
+                        {paymentSaveLoading ? 'Saving...' : 'Save Payout Details'}
+                      </button>
+                      <button 
+                        type="button" 
+                        onClick={() => setIsEditingPaymentDetails(false)}
+                        className="bg-gray-100 text-gray-700 px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-gray-200 transition-all"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100">
+                    <p className="text-xs font-bold text-gray-800 whitespace-pre-wrap leading-relaxed">
+                      {seller.paymentDetails || 'No payment details registered yet. Please click "Edit Details" to configure your bank account or payment method.'}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Earnings History */}
+              <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="p-6 md:p-8 border-b border-gray-100 flex justify-between items-center">
+                  <div>
+                    <h3 className="text-lg font-black uppercase tracking-tight text-gray-900">Earnings History</h3>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">
+                      Verified records credited for completed orders
+                    </p>
+                  </div>
+                  <span className="text-xs font-black bg-blue-50 text-blue-600 px-3 py-1 rounded-full">
+                    {sellerEarningsList.length} Entries
+                  </span>
+                </div>
+
+                {sellerEarningsList.length === 0 ? (
+                  <div className="p-16 text-center text-gray-400">
+                    <DollarSign className="mx-auto mb-3 opacity-20" size={40} />
+                    <p className="text-xs font-black uppercase tracking-widest">No earnings records yet</p>
+                    <p className="text-[10px] font-medium text-gray-400 mt-1">Earnings will be credited once orders are marked Completed and payment is confirmed.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-400 border-b border-gray-100">
+                          <th className="px-6 py-4">Date</th>
+                          <th className="px-6 py-4">Related Order ID</th>
+                          <th className="px-6 py-4">Amount</th>
+                          <th className="px-6 py-4">Admin Note</th>
+                          <th className="px-6 py-4 text-right">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50 text-xs">
+                        {sellerEarningsList.map(e => (
+                          <tr key={e.id} className="hover:bg-gray-50/50 transition-colors">
+                            <td className="px-6 py-4 font-bold text-gray-500">
+                              {new Date(e.createdAt).toLocaleDateString()}
+                            </td>
+                            <td className="px-6 py-4 font-black uppercase text-gray-900">
+                              #{e.orderId.slice(-8)}
+                            </td>
+                            <td className="px-6 py-4 font-black text-green-600 text-sm">
+                              +${e.amount.toFixed(2)} USD
+                            </td>
+                            <td className="px-6 py-4 text-gray-500 font-medium">
+                              {e.adminNote || 'Verified Order Profit'}
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <span className="bg-green-50 text-green-700 border border-green-200 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider">
+                                Credited
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Payout History */}
+              <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="p-6 md:p-8 border-b border-gray-100 flex justify-between items-center">
+                  <div>
+                    <h3 className="text-lg font-black uppercase tracking-tight text-gray-900">Payout History</h3>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">
+                      Disbursements manually executed and recorded by platform administrator
+                    </p>
+                  </div>
+                  <span className="text-xs font-black bg-purple-50 text-purple-600 px-3 py-1 rounded-full">
+                    {sellerPayoutsList.length} Disbursements
+                  </span>
+                </div>
+
+                {sellerPayoutsList.length === 0 ? (
+                  <div className="p-16 text-center text-gray-400">
+                    <CreditCard className="mx-auto mb-3 opacity-20" size={40} />
+                    <p className="text-xs font-black uppercase tracking-widest">No payout records yet</p>
+                    <p className="text-[10px] font-medium text-gray-400 mt-1">Payouts are manually processed when your available balance reaches at least $30.00 USD.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                      <thead>
+                        <tr className="bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-400 border-b border-gray-100">
+                          <th className="px-6 py-4">Payout Date</th>
+                          <th className="px-6 py-4">Amount</th>
+                          <th className="px-6 py-4">Method</th>
+                          <th className="px-6 py-4">Transaction Reference</th>
+                          <th className="px-6 py-4">Admin Note</th>
+                          <th className="px-6 py-4 text-right">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50 text-xs">
+                        {sellerPayoutsList.map(p => (
+                          <tr key={p.id} className="hover:bg-gray-50/50 transition-colors">
+                            <td className="px-6 py-4 font-bold text-gray-500">
+                              {p.payoutDate || new Date(p.createdAt).toLocaleDateString()}
+                            </td>
+                            <td className="px-6 py-4 font-black text-gray-900 text-sm">
+                              ${p.amount.toFixed(2)} USD
+                            </td>
+                            <td className="px-6 py-4 font-bold text-gray-700">
+                              {p.paymentMethod}
+                            </td>
+                            <td className="px-6 py-4 font-mono text-[11px] text-gray-600">
+                              {p.transactionReference || 'N/A'}
+                            </td>
+                            <td className="px-6 py-4 text-gray-500 font-medium">
+                              {p.adminNote || 'Manual disbursement'}
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                p.status === 'Paid' 
+                                  ? 'bg-green-100 text-green-800' 
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}>
+                                {p.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* NOTIFICATIONS TAB */}
+          {activeTab === 'notifications' && (
             <div className="bg-white rounded-[2rem] overflow-hidden border border-gray-100 divide-y">
                {sellerNotifications.length === 0 ? (
                   <div className="p-20 text-center text-gray-300">
@@ -216,8 +591,14 @@ const SellerPanel: React.FC = () => {
                      onClick={() => markNotificationAsRead(n.id)}
                      className={`p-6 flex gap-6 hover:bg-gray-50 transition-colors cursor-pointer ${!n.isRead ? 'bg-blue-50/20' : ''}`}
                    >
-                     <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${n.type === 'New Order' ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'}`}>
-                       {n.type === 'New Order' ? <ShoppingBag size={20}/> : <AlertCircle size={20}/>}
+                     <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+                       n.type === 'New Order' ? 'bg-green-50 text-green-600' : 
+                       n.type === 'Payout Paid' ? 'bg-purple-50 text-purple-600' :
+                       'bg-blue-50 text-blue-600'
+                     }`}>
+                       {n.type === 'New Order' ? <ShoppingBag size={20}/> : 
+                        n.type === 'Payout Paid' ? <DollarSign size={20}/> :
+                        <AlertCircle size={20}/>}
                      </div>
                      <div>
                         <p className="text-[10px] font-black uppercase text-gray-400 mb-1">{new Date(n.timestamp).toLocaleString()}</p>
@@ -229,18 +610,19 @@ const SellerPanel: React.FC = () => {
                )}
             </div>
           )}
+
           <div className="mt-8 p-6 bg-blue-50 border border-blue-100 rounded-2xl flex items-center gap-4">
             <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center shrink-0">
               <AlertCircle size={20} />
             </div>
             <p className="text-[11px] font-black uppercase tracking-widest text-blue-600 leading-relaxed">
-              Payment will be processed after order completion. Seller will receive confirmation on WhatsApp.
+              Payment is processed manually by administrator after customer order completion and payment confirmation.
             </p>
           </div>
         </section>
       </main>
 
-      {/* Modals are kept below (Order Detail & Add Product) - They are already minimal/correct but I'll add the data fix to Order Detail */}
+      {/* Order Details Modal */}
       {selectedOrder && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-[2rem] shadow-2xl max-w-xl w-full overflow-hidden">
@@ -268,7 +650,13 @@ const SellerPanel: React.FC = () => {
                     <p className="text-[10px] font-black text-gray-400 uppercase mt-1">Date: {new Date(selectedOrder.date).toLocaleDateString()}</p>
                     <p className="text-[9px] font-black text-purple-600 uppercase mt-4">Seller: {selectedOrder.sellerShopName || 'Main Store'}</p>
                     <div className="mt-2">
-                       <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${selectedOrder.status === 'Confirmed' ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-600'}`}>
+                       <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${
+                         selectedOrder.status === 'Completed' ? 'bg-green-100 text-green-700' :
+                         selectedOrder.status === 'Shipped' ? 'bg-purple-100 text-purple-700' :
+                         selectedOrder.status === 'Processing' ? 'bg-blue-100 text-blue-700' :
+                         selectedOrder.status === 'Cancelled' ? 'bg-red-100 text-red-700' :
+                         'bg-orange-100 text-orange-700'
+                       }`}>
                           {selectedOrder.status}
                         </span>
                     </div>
@@ -276,11 +664,11 @@ const SellerPanel: React.FC = () => {
                </div>
                <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100 flex flex-col gap-3">
                  <p className="text-[10px] font-black uppercase tracking-widest text-blue-600">
-                   "Payment will be processed after order completion. Seller will receive confirmation on WhatsApp."
+                   "Payment will be processed after order completion and verification by platform administrator."
                  </p>
                  <div className="pt-2 border-t border-blue-100 flex justify-between items-center">
-                   <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Commission Type</span>
-                   <span className="text-[9px] font-black text-green-600 uppercase tracking-widest">Direct Escrow</span>
+                   <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Payout Minimum</span>
+                   <span className="text-[9px] font-black text-green-600 uppercase tracking-widest">$30.00 USD</span>
                  </div>
                </div>
                <div>
@@ -388,4 +776,3 @@ const SellerPanel: React.FC = () => {
 };
 
 export default SellerPanel;
-

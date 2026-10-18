@@ -1,6 +1,10 @@
 
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
-import { Product, CartItem, SaleRecord, Customer, Currency, Language, CurrencyCode, LanguageCode, SellerInfo, AppNotification } from '../types';
+import { 
+  Product, CartItem, SaleRecord, Customer, Currency, Language, 
+  CurrencyCode, LanguageCode, SellerInfo, AppNotification,
+  SellerEarningRecord, SellerPayoutRecord
+} from '../types';
 import { PRODUCTS, CATEGORIES, MOCK_CUSTOMERS, CURRENCIES, LANGUAGES, SELLERS, ADMIN_EMAILS } from '../constants';
 import { detectShowName } from '../services/routingUtils';
 import { 
@@ -9,6 +13,7 @@ import {
   doc, 
   setDoc, 
   updateDoc, 
+  deleteDoc,
   query, 
   orderBy,
   addDoc,
@@ -164,6 +169,8 @@ interface StoreContextType {
   hasMoreProducts: boolean;
   notifications: AppNotification[];
   unreadNotificationsCount: number;
+  sellerEarnings: SellerEarningRecord[];
+  sellerPayouts: SellerPayoutRecord[];
   normalizeCategory: (cat: string) => string;
   setCurrency: (code: CurrencyCode) => void;
   setLanguage: (code: LanguageCode) => void;
@@ -177,11 +184,24 @@ interface StoreContextType {
   clearCart: () => void;
   addSale: (sale: Omit<SaleRecord, 'id' | 'date'>) => Promise<void>;
   addSeller: (seller: Omit<SellerInfo, 'id' | 'joinedDate' | 'totalSales' | 'rating' | 'rank' | 'isVerified' | 'verificationStatus'>) => Promise<void>;
+  updateSeller: (id: string, updates: Partial<SellerInfo>) => Promise<void>;
   updateSaleStatus: (id: string, status: SaleRecord['status']) => Promise<void>;
+  deleteSale: (id: string) => Promise<void>;
+  archiveSale: (id: string) => Promise<void>;
   loadMoreProducts: () => Promise<void>;
   searchProducts: (query: string, category?: string) => Product[];
   addNotification: (notification: Omit<AppNotification, 'id' | 'timestamp' | 'isRead'>) => Promise<void>;
   markNotificationAsRead: (id: string) => Promise<void>;
+  addSellerEarning: (earning: Omit<SellerEarningRecord, 'id' | 'createdAt'>) => Promise<void>;
+  addSellerPayout: (payout: Omit<SellerPayoutRecord, 'id' | 'createdAt' | 'status'>) => Promise<void>;
+  reverseSellerPayout: (payoutId: string, reason: string, adminEmail: string) => Promise<void>;
+  getSellerFinancials: (sellerId: string) => {
+    totalEarnings: number;
+    totalPaid: number;
+    availableBalance: number;
+    pendingPayout: number;
+    isEligibleForPayout: boolean;
+  };
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -193,6 +213,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [sellers, setSellers] = useState<SellerInfo[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [sellerEarnings, setSellerEarnings] = useState<SellerEarningRecord[]>([]);
+  const [sellerPayouts, setSellerPayouts] = useState<SellerPayoutRecord[]>([]);
   
   const [isProductsLoading, setIsProductsLoading] = useState(true);
   const [lastVisible, setLastVisible] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
@@ -292,12 +314,32 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       },
       (error) => console.warn("Notifications sync error:", error)
     );
+
+    const unsubscribeEarnings = onSnapshot(
+      query(collection(db, 'sellerEarnings'), orderBy('createdAt', 'desc')),
+      (snapshot) => {
+        const earningsList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SellerEarningRecord));
+        setSellerEarnings(earningsList);
+      },
+      (error) => console.warn("Seller earnings sync error:", error.message)
+    );
+
+    const unsubscribePayouts = onSnapshot(
+      query(collection(db, 'sellerPayouts'), orderBy('createdAt', 'desc')),
+      (snapshot) => {
+        const payoutsList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SellerPayoutRecord));
+        setSellerPayouts(payoutsList);
+      },
+      (error) => console.warn("Seller payouts sync error:", error.message)
+    );
     
     return () => {
       unsubscribeProducts();
       unsubscribeSales();
       unsubscribeSellers();
       unsubscribeNotifications();
+      unsubscribeEarnings();
+      unsubscribePayouts();
     };
   }, []);
 
@@ -366,13 +408,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       processedTerm = parts.pop() || processedTerm;
     }
     
-    // Standardize all types of whitespace (including non-breaking spaces \u00A0 often sent by iOS keyboard/autocorrect) to normal single spaces
+    // Standardize all types of whitespace
     processedTerm = processedTerm.replace(/[\s\u00A0\u1680\u180e\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/g, ' ');
-    
-    // Normalize smart/curly quotes (which iOS autocorrect inserts automatically)
+    // Normalize smart/curly quotes
     processedTerm = processedTerm.replace(/[\u201c\u201d\u2018\u2019"']/g, '');
-
-    // Safely remove leading and trailing garbage punctuation without stripping non-English letters
+    // Safely remove leading and trailing punctuation
     processedTerm = processedTerm.replace(/^[\?\*!\.,\-\+\/\\_]+/, '').replace(/[\?\*!\.,\-\+\/\\_]+$/, '').trim();
     
     const isCategoryAll = !rawCategoryInput || 
@@ -381,7 +421,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     let filtered = [...products];
 
-    // 1. Category Filtering
+    // 1. Category Context Filtering
     if (!isCategoryAll) {
       const catLower = rawCategoryInput.toLowerCase();
       const normTarget = normSearchCategory.toLowerCase();
@@ -401,66 +441,78 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       queryNorm = queryNorm.replace(/\bgraphic[\s\-_]*tshirt(s)?\b/g, 'graphic tshirt');
       queryNorm = queryNorm.replace(/\bgym[\s\-_]*tank(s)?\b/g, 'gym tank');
 
+      // Detect if user is specifically searching for a product category
+      let primaryTargetCat = '';
+      if (queryNorm === 'jacket' || queryNorm === 'jackets' || queryNorm.startsWith('jacket ') || queryNorm.endsWith(' jacket')) primaryTargetCat = 'jacket';
+      else if (queryNorm === 'tracksuit' || queryNorm === 'tracksuits' || queryNorm.startsWith('tracksuit ') || queryNorm.endsWith(' tracksuit')) primaryTargetCat = 'tracksuit';
+      else if (queryNorm === 'hoodie' || queryNorm === 'hoodies' || queryNorm.startsWith('hoodie ') || queryNorm.endsWith(' hoodie')) primaryTargetCat = 'hoodie';
+      else if (queryNorm === 'tshirt' || queryNorm === 'tshirts' || queryNorm === 'shirt' || queryNorm === 'shirts' || queryNorm === 'tee' || queryNorm === 'tees') primaryTargetCat = 'tshirt';
+      else if (queryNorm === 'shoe' || queryNorm === 'shoes' || queryNorm === 'footwear' || queryNorm === 'sneakers' || queryNorm === 'sneaker') primaryTargetCat = 'shoes';
+      else if (queryNorm === 'cap' || queryNorm === 'caps' || queryNorm === 'hat' || queryNorm === 'hats') primaryTargetCat = 'cap';
+      else if (queryNorm === 'shorts' || queryNorm === 'short') primaryTargetCat = 'shorts';
+      else if (queryNorm === 'jersey' || queryNorm === 'jerseys') primaryTargetCat = 'jersey';
+      else if (queryNorm === 'electronics' || queryNorm === 'electronic') primaryTargetCat = 'electronics';
+      else if (queryNorm === 'books' || queryNorm === 'book') primaryTargetCat = 'books';
+
       const rawTokens = queryNorm
         .split(/[\s\-_]+/)
         .filter(w => w.length > 0);
 
       const STOP_WORDS = new Set(['best', 'top', 'cheap', 'buy', 'online', 'good', 'great', 'quality', 'the', 'a', 'an', 'for', 'with', 'and', 'in', 'of', 'on', 'to']);
-      
-      const meaningfulTokens = rawTokens.filter(w => !STOP_WORDS.has(w));
-      const activeTokens = meaningfulTokens.length > 0 ? meaningfulTokens : rawTokens;
+      const activeTokens = rawTokens.filter(w => !STOP_WORDS.has(w));
+      const tokensToMatch = activeTokens.length > 0 ? activeTokens : rawTokens;
 
       filtered = filtered.filter(p => {
         const pName = (p.name || '').toLowerCase();
         const pCatRaw = (p.category || '').toLowerCase();
         const pCatNorm = normalizeCategory(pCatRaw).toLowerCase();
         const pTags = (p.tags || []).map(t => String(t).toLowerCase());
-        const pKeywords = (p.metaKeywords || '').toLowerCase();
-        const pDesc = (p.description || '').toLowerCase();
-        const pOffer = (p.offer || '').toLowerCase();
 
-        // Exact term or phrase match
-        if (pName.includes(processedTerm) || 
-            pName.includes(queryNorm) || 
-            pCatRaw.includes(processedTerm) || 
-            pCatNorm.includes(processedTerm) || 
-            pKeywords.includes(processedTerm) || 
-            pOffer.includes(processedTerm) ||
-            pTags.some(t => t.includes(processedTerm) || t.includes(queryNorm))) {
+        // CRITICAL: If the user explicitly searched for a category (e.g. Jacket or Tracksuit),
+        // strictly enforce that only products in that category or with that category in their name match!
+        if (primaryTargetCat) {
+          const matchesCategory = pCatNorm === primaryTargetCat || pCatRaw === primaryTargetCat || pName.includes(primaryTargetCat);
+          if (!matchesCategory) {
+            return false;
+          }
+        }
+
+        // Exact name or category match
+        if (pName.includes(processedTerm) || pName.includes(queryNorm) || pCatNorm === queryNorm) {
           return true;
         }
 
-        if (activeTokens.length === 0) return false;
+        // Tag match
+        if (pTags.some(t => t.includes(processedTerm) || t.includes(queryNorm))) {
+          return true;
+        }
 
-        return activeTokens.every(token => {
+        if (tokensToMatch.length === 0) return false;
+
+        return tokensToMatch.every(token => {
           const isHoodieToken = token === 'hoodie' || token === 'hoodies';
           const isShoeToken = token === 'shoe' || token === 'shoes' || token === 'sneaker' || token === 'sneakers' || token === 'boot' || token === 'boots' || token === 'footwear';
-          const isTshirtToken = token === 'tshirt' || token === 'shirt' || token === 'shirts' || token === 'tee' || token === 'tees' || token === 'polo' || token === 'graphic';
+          const isTshirtToken = token === 'tshirt' || token === 'shirt' || token === 'shirts' || token === 'tee' || token === 'tees' || token === 'polo';
           const isJacketToken = token === 'jacket' || token === 'jackets' || token === 'coat' || token === 'blazer';
           const isTracksuitToken = token === 'tracksuit' || token === 'tracksuits';
           const isCapToken = token === 'cap' || token === 'caps' || token === 'hat' || token === 'hats';
-          const isShortsToken = token === 'shorts' || token === 'short' || token === 'jogger' || token === 'joggers';
+          const isShortsToken = token === 'shorts' || token === 'short';
 
           if (isHoodieToken) return pCatNorm === 'hoodie' || pName.includes('hoodie');
           if (isShoeToken) return pCatNorm === 'shoes' || pName.includes('shoe') || pName.includes('sneaker') || pName.includes('boot') || pName.includes('footwear');
-          if (isTshirtToken) return pCatNorm === 'tshirt' || pName.includes('tshirt') || pName.includes('t-shirt') || pName.includes('polo') || pName.includes('shirt') || pName.includes('graphic');
+          if (isTshirtToken) return pCatNorm === 'tshirt' || pName.includes('tshirt') || pName.includes('t-shirt') || pName.includes('polo') || pName.includes('shirt');
           if (isJacketToken) return pCatNorm === 'jacket' || pName.includes('jacket') || pName.includes('coat') || pName.includes('blazer');
           if (isTracksuitToken) return pCatNorm === 'tracksuit' || pName.includes('tracksuit');
           if (isCapToken) return pCatNorm === 'cap' || pName.includes('cap') || pName.includes('hat');
-          if (isShortsToken) return pCatNorm === 'shorts' || pName.includes('short') || pName.includes('jogger');
+          if (isShortsToken) return pCatNorm === 'shorts' || pName.includes('short');
 
           return pName.includes(token) || 
                  pCatRaw.includes(token) || 
                  pCatNorm.includes(token) ||
-                 pTags.some(t => t.includes(token)) ||
-                 pKeywords.includes(token) ||
-                 pDesc.includes(token) ||
-                 pOffer.includes(token);
+                 pTags.some(t => t.includes(token));
         });
       });
     }
-
-    console.log(`[StoreContext Search] Total products before filtering: ${products.length} | Total products after filtering: ${filtered.length} (Query: "${term}", Category: "${category}")`);
 
     // Deduplicate and return
     const uniqueMap = new Map();
@@ -747,20 +799,147 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     await setDoc(docRef, sanitizeFirestoreData(sellerData));
   };
 
-  const updateSaleStatus = async (id: string, status: SaleRecord['status']) => {
-    const docRef = doc(db, 'sales', id);
-    await updateDoc(docRef, { status });
+  const updateSeller = async (id: string, updates: Partial<SellerInfo>) => {
+    try {
+      const docRef = doc(db, 'sellers', id);
+      await updateDoc(docRef, sanitizeFirestoreData(updates));
+    } catch (e) {
+      console.error("Error updating seller:", e);
+      throw e;
+    }
   };
+
+  const updateSaleStatus = async (id: string, status: SaleRecord['status']) => {
+    try {
+      const docRef = doc(db, 'sales', id);
+      await updateDoc(docRef, { status });
+
+      // Synchronize Seller Panel via real-time notification
+      const existingSale = sales.find(s => s.id === id);
+      if (existingSale && existingSale.sellerId && existingSale.sellerId !== 'admin' && existingSale.sellerId !== 'Direct') {
+        await addNotification({
+          type: 'New Order',
+          title: `Order Status Updated: ${status}`,
+          message: `Order #${id.slice(-6)} status is now ${status}.`,
+          targetId: id,
+          targetRole: 'seller',
+          sellerId: existingSale.sellerId
+        });
+      }
+    } catch (e) {
+      console.error("Error updating order status:", e);
+      throw e;
+    }
+  };
+
+  const deleteSale = async (id: string) => {
+    try {
+      const docRef = doc(db, 'sales', id);
+      await deleteDoc(docRef);
+    } catch (e) {
+      console.error("Error deleting order:", e);
+      throw e;
+    }
+  };
+
+  const archiveSale = async (id: string) => {
+    try {
+      const docRef = doc(db, 'sales', id);
+      await updateDoc(docRef, { isArchived: true, status: 'Cancelled' });
+    } catch (e) {
+      console.error("Error archiving order:", e);
+      throw e;
+    }
+  };
+
+  const addSellerEarning = async (earning: Omit<SellerEarningRecord, 'id' | 'createdAt'>) => {
+    const safeAmount = Number(earning.amount);
+    if (isNaN(safeAmount) || safeAmount <= 0) {
+      throw new Error('Earning amount must be greater than zero.');
+    }
+    const docRef = doc(collection(db, 'sellerEarnings'));
+    const data: SellerEarningRecord = {
+      ...earning,
+      id: docRef.id,
+      amount: safeAmount,
+      createdAt: new Date().toISOString()
+    };
+    await setDoc(docRef, sanitizeFirestoreData(data));
+  };
+
+  const addSellerPayout = async (payout: Omit<SellerPayoutRecord, 'id' | 'createdAt' | 'status'>) => {
+    const safeAmount = Number(payout.amount);
+    if (isNaN(safeAmount) || safeAmount <= 0) {
+      throw new Error('Payout amount must be greater than zero.');
+    }
+    const { availableBalance } = getSellerFinancials(payout.sellerId);
+    if (safeAmount > availableBalance + 0.001) {
+      throw new Error(`Payout amount ($${safeAmount.toFixed(2)}) cannot exceed available balance ($${availableBalance.toFixed(2)}).`);
+    }
+
+    const docRef = doc(collection(db, 'sellerPayouts'));
+    const data: SellerPayoutRecord = {
+      ...payout,
+      id: docRef.id,
+      amount: safeAmount,
+      status: 'Paid',
+      createdAt: new Date().toISOString()
+    };
+    await setDoc(docRef, sanitizeFirestoreData(data));
+
+    // Send real-time notification to the relevant seller panel
+    await addNotification({
+      type: 'Payout Paid',
+      title: `Payment Received: $${safeAmount.toFixed(2)} USD`,
+      message: `Payment of $${safeAmount.toFixed(2)} has been recorded as Paid on ${data.payoutDate} via ${data.paymentMethod}${data.transactionReference ? ` (Ref: ${data.transactionReference})` : ''}.`,
+      targetRole: 'seller',
+      sellerId: data.sellerId,
+      amount: data.amount,
+      paymentDate: data.payoutDate,
+      paymentMethod: data.paymentMethod,
+      transactionReference: data.transactionReference
+    });
+  };
+
+  const reverseSellerPayout = async (payoutId: string, reason: string, adminEmail: string) => {
+    const docRef = doc(db, 'sellerPayouts', payoutId);
+    await updateDoc(docRef, {
+      status: 'Reversed',
+      reversalReason: reason,
+      reversedAt: new Date().toISOString(),
+      reversedByAdminEmail: adminEmail
+    });
+  };
+
+  const getSellerFinancials = useCallback((sellerId: string) => {
+    const earnings = sellerEarnings.filter(e => e.sellerId === sellerId);
+    const payouts = sellerPayouts.filter(p => p.sellerId === sellerId && p.status === 'Paid');
+
+    const totalEarnings = earnings.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+    const totalPaid = payouts.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    const availableBalance = Math.max(0, Math.round((totalEarnings - totalPaid) * 100) / 100);
+    const isEligibleForPayout = availableBalance >= 30;
+    const pendingPayout = isEligibleForPayout ? availableBalance : 0;
+
+    return {
+      totalEarnings,
+      totalPaid,
+      availableBalance,
+      pendingPayout,
+      isEligibleForPayout
+    };
+  }, [sellerEarnings, sellerPayouts]);
 
   return (
     <StoreContext.Provider value={{ 
       products, cart, sales, customers, activeShowName, referralCode, activeSeller, sellers,
-      notifications, unreadNotificationsCount, normalizeCategory,
+      notifications, unreadNotificationsCount, sellerEarnings, sellerPayouts, normalizeCategory,
       currency, language, quickViewProduct, isProductsLoading, hasMoreProducts,
       setCurrency, setLanguage, setQuickViewProduct, formatPrice,
       addProduct, updateProduct, deleteProduct, addToCart, removeFromCart, clearCart,
-      addSale, addSeller, updateSaleStatus, loadMoreProducts, searchProducts,
-      addNotification, markNotificationAsRead
+      addSale, addSeller, updateSeller, updateSaleStatus, deleteSale, archiveSale, loadMoreProducts, searchProducts,
+      addNotification, markNotificationAsRead,
+      addSellerEarning, addSellerPayout, reverseSellerPayout, getSellerFinancials
     }}>
       {children}
     </StoreContext.Provider>

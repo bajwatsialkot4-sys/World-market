@@ -93,9 +93,39 @@ export interface SaleRecord {
   customerZip: string;
   amount: number;
   date: string;
-  status: 'Delivered' | 'Processing' | 'Shipped' | 'Pending Payment' | 'Confirmed' | 'Cancelled' | 'Completed';
+  status: 'New Order' | 'Processing' | 'Shipped' | 'Completed' | 'Cancelled' | 'Delivered' | 'Pending Payment' | 'Confirmed';
   sellerId?: string;
   sellerShopName?: string;
+  isArchived?: boolean;
+}
+
+export interface SellerEarningRecord {
+  id: string;
+  sellerId: string;
+  sellerName?: string;
+  orderId: string;
+  amount: number;
+  adminNote?: string;
+  createdAt: string;
+  createdByAdminEmail: string;
+}
+
+export interface SellerPayoutRecord {
+  id: string;
+  sellerId: string;
+  sellerName?: string;
+  amount: number;
+  payoutDate: string;
+  paymentMethod: string;
+  transactionReference?: string;
+  adminNote?: string;
+  status: 'Paid' | 'Reversed';
+  createdAt: string;
+  createdByAdminEmail: string;
+  reversalReason?: string;
+  reversedAt?: string;
+  reversedByAdminEmail?: string;
+  emailDeliveryStatus?: 'Sent' | 'Failed' | 'Not Configured';
 }
 
 export interface Customer {
@@ -133,7 +163,7 @@ export interface SellerInfo {
 
 export interface AppNotification {
   id: string;
-  type: 'New Order' | 'New Seller' | 'Payment Request' | 'Stock Alert';
+  type: 'New Order' | 'New Seller' | 'Payment Request' | 'Stock Alert' | 'Payout Paid';
   title: string;
   message: string;
   targetId?: string;
@@ -141,6 +171,10 @@ export interface AppNotification {
   sellerId?: string;
   isRead: boolean;
   timestamp: string;
+  amount?: number;
+  paymentDate?: string;
+  paymentMethod?: string;
+  transactionReference?: string;
 }
 
 export interface BlogPost {

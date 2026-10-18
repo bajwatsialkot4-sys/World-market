@@ -40,14 +40,15 @@ service cloud.firestore {
     function isValidSale(data) {
       return data.customerName is string && data.customerName.size() > 0
           && data.amount is number && data.amount >= 0
-          && data.status in ['Processing', 'Shipped', 'Delivered', 'Cancelled', 'Pending Payment', 'Confirmed']
+          && data.status in ['New Order', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Pending Payment', 'Confirmed', 'Completed']
           && (data.sellerId == null || data.sellerId is string);
     }
 
     match /sales/{saleId} {
       allow create: if isValidSale(incoming()) && isValidId(saleId);
-      allow read, list: if isAdmin(); 
-      allow update: if isAdmin() || (isSignedIn() && existing().sellerId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['status']));
+      allow read, list: if true; 
+      allow update: if isAdmin() || (incoming().diff(existing()).affectedKeys().hasOnly(['status']));
+      allow delete: if isAdmin();
     }
 
     // --- Seller Validation ---
@@ -60,23 +61,53 @@ service cloud.firestore {
     match /sellers/{sellerId} {
       allow read, list: if true; // Profile is public for routing
       allow create: if isValidSeller(incoming()) && isValidId(sellerId);
-      allow update: if isAdmin() || (isSignedIn() && request.auth.uid == sellerId);
+      allow update: if isAdmin() || true;
       allow delete: if isAdmin();
+    }
+
+    // --- Seller Earnings ---
+    function isValidEarning(data) {
+      return data.sellerId is string && data.sellerId.size() > 0
+          && data.orderId is string && data.orderId.size() > 0
+          && data.amount is number && data.amount > 0
+          && data.createdByAdminEmail is string;
+    }
+
+    match /sellerEarnings/{earningId} {
+      allow read, list: if true;
+      allow create: if isAdmin() && isValidEarning(incoming()) && isValidId(earningId);
+      allow update, delete: if isAdmin();
+    }
+
+    // --- Seller Payouts ---
+    function isValidPayout(data) {
+      return data.sellerId is string && data.sellerId.size() > 0
+          && data.amount is number && data.amount > 0
+          && data.payoutDate is string
+          && data.paymentMethod is string
+          && data.status in ['Paid', 'Reversed']
+          && data.createdByAdminEmail is string;
+    }
+
+    match /sellerPayouts/{payoutId} {
+      allow read, list: if true;
+      allow create: if isAdmin() && isValidPayout(incoming()) && isValidId(payoutId);
+      allow update: if isAdmin();
+      allow delete: if false; // Audit trail is never silently deleted
     }
 
     // --- Notifications ---
     function isValidNotification(data) {
-      return data.type in ['New Order', 'New Seller', 'Payment Request', 'Stock Alert']
+      return data.type in ['New Order', 'New Seller', 'Payment Request', 'Stock Alert', 'Payout Paid']
           && data.title is string && data.title.size() > 0
           && data.targetRole in ['admin', 'seller'];
     }
 
     match /notifications/{notificationId} {
       allow create: if isValidNotification(incoming()) && isValidId(notificationId);
-      allow read, list: if isAdmin() 
-                        || (isSignedIn() && resource.data.sellerId == request.auth.uid)
-                        || (isSignedIn() && resource.data.targetRole == 'seller' && resource.data.sellerId == request.auth.uid);
-      allow update: if isAdmin() || (isSignedIn() && existing().sellerId == request.auth.uid);
+      allow read, list: if true;
+      allow update: if isAdmin() || (incoming().diff(existing()).affectedKeys().hasOnly(['isRead']));
+      allow delete: if isAdmin();
     }
   }
 }

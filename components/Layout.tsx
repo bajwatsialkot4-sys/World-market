@@ -84,11 +84,12 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const handleClickOutside = (event: MouseEvent | TouchEvent) => {
       const target = event.target as Node;
       
-      // Prevent click/touch disruption on the cart buttons by bypassing state changes
+      // Prevent click/touch disruption on links and buttons on mobile by bypassing premature state changes
       if (target instanceof Element && (
         target.closest('#mobile-cart-btn') || 
         target.closest('#desktop-cart-btn') || 
-        target.closest('a[href*="/cart"]')
+        target.closest('a') || 
+        target.closest('button')
       )) {
         return;
       }
@@ -103,7 +104,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('touchstart', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside, { passive: true });
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('touchstart', handleClickOutside);

@@ -93,7 +93,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "type": { "type": "string", "enum": ["New Order", "New Seller", "Payment Request", "Stock Alert"] },
+        "type": { "type": "string", "enum": ["New Order", "New Seller", "Payment Request", "Stock Alert", "Payout Paid"] },
         "title": { "type": "string" },
         "message": { "type": "string" },
         "targetId": { "type": "string" },
@@ -103,6 +103,41 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["type", "title", "message", "targetRole"]
+    },
+    "SellerEarning": {
+      "title": "Seller Earning Record",
+      "description": "Manual earnings entry recorded by administrator for completed orders",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sellerId": { "type": "string" },
+        "sellerName": { "type": "string" },
+        "orderId": { "type": "string" },
+        "amount": { "type": "number" },
+        "adminNote": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "createdByAdminEmail": { "type": "string" }
+      },
+      "required": ["sellerId", "orderId", "amount", "createdAt", "createdByAdminEmail"]
+    },
+    "SellerPayout": {
+      "title": "Seller Payout Record",
+      "description": "Manual payout confirmation recorded by administrator",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sellerId": { "type": "string" },
+        "sellerName": { "type": "string" },
+        "amount": { "type": "number" },
+        "payoutDate": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "transactionReference": { "type": "string" },
+        "adminNote": { "type": "string" },
+        "status": { "type": "string", "enum": ["Paid", "Reversed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "createdByAdminEmail": { "type": "string" }
+      },
+      "required": ["sellerId", "amount", "payoutDate", "paymentMethod", "status", "createdAt", "createdByAdminEmail"]
     }
   },
   "firestore": {
@@ -117,6 +152,14 @@
     "/sellers/{sellerId}": {
       "schema": "SellerInfo",
       "description": "Store marketplace seller profiles"
+    },
+    "/sellerEarnings/{earningId}": {
+      "schema": "SellerEarning",
+      "description": "Store individual seller earnings records"
+    },
+    "/sellerPayouts/{payoutId}": {
+      "schema": "SellerPayout",
+      "description": "Store permanent seller payout records"
     },
     "/notifications/{notificationId}": {
       "schema": "Notification",
