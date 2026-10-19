@@ -24,7 +24,7 @@ const Admin: React.FC = () => {
   const { 
     products, sales, customers, sellers, notifications, unreadNotificationsCount,
     addProduct, updateProduct, deleteProduct, updateSaleStatus, deleteSale, archiveSale,
-    sellerEarnings, sellerPayouts, addSellerEarning, addSellerPayout, reverseSellerPayout, getSellerFinancials,
+    sellerEarnings, sellerPayouts, addSellerEarning, addSellerPayout, reverseSellerPayout, resetSellerBalance, getSellerFinancials,
     formatPrice, markNotificationAsRead 
   } = useStore();
   const [activeTab, setActiveTab] = useState<'overview' | 'inventory' | 'sales' | 'customers' | 'settings' | 'withdrawals'>('overview');
@@ -74,6 +74,11 @@ const Admin: React.FC = () => {
   const [payoutToReverse, setPayoutToReverse] = useState<SellerPayoutRecord | null>(null);
   const [reversalReason, setReversalReason] = useState('');
   const [reversalLoading, setReversalLoading] = useState(false);
+
+  // Balance Reset Modal State
+  const [sellerToResetBalance, setSellerToResetBalance] = useState<{ seller: SellerInfo; balance: number } | null>(null);
+  const [resetNote, setResetNote] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
 
   // New Product State
   const [isAddingProduct, setIsAddingProduct] = useState(false);
@@ -365,6 +370,27 @@ const Admin: React.FC = () => {
       showToast(err.message || "Failed to reverse payout", 'error');
     } finally {
       setReversalLoading(false);
+    }
+  };
+
+  const handleConfirmResetBalance = async () => {
+    if (!sellerToResetBalance) return;
+    const { seller, balance } = sellerToResetBalance;
+    if (balance <= 0) {
+      showToast('Available balance is already $0.00 USD.', 'error');
+      setSellerToResetBalance(null);
+      return;
+    }
+    setResetLoading(true);
+    try {
+      await resetSellerBalance(seller.id, balance, user?.email || 'admin', resetNote.trim() || undefined);
+      showToast(`Successfully reset ${seller.shopName || seller.fullName}'s Available Balance to $0.00. Recorded $${balance.toFixed(2)} in Payout History.`, 'success');
+      setSellerToResetBalance(null);
+      setResetNote('');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to reset balance', 'error');
+    } finally {
+      setResetLoading(false);
     }
   };
 
@@ -1043,6 +1069,23 @@ const Admin: React.FC = () => {
                                 title="Manually record seller earnings"
                               >
                                 + Earnings
+                              </button>
+                              
+                              {/* Reset Available Balance to $0 button */}
+                              <button 
+                                disabled={fin.availableBalance <= 0}
+                                onClick={() => {
+                                  setSellerToResetBalance({ seller: s, balance: fin.availableBalance });
+                                  setResetNote('');
+                                }}
+                                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all shadow-sm ${
+                                  fin.availableBalance > 0
+                                    ? 'bg-amber-600 hover:bg-black text-white' 
+                                    : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
+                                }`}
+                                title={fin.availableBalance > 0 ? `Reset Available Balance ($${fin.availableBalance.toFixed(2)}) to $0.00 after manual payment` : 'Available balance is already $0.00'}
+                              >
+                                Reset Balance (${fin.availableBalance.toFixed(2)})
                               </button>
                               
                               {/* Record Payout button */}
@@ -1970,6 +2013,75 @@ const Admin: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Available Balance to $0 Confirmation Modal */}
+      {sellerToResetBalance && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[250] flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-lg w-full overflow-hidden p-8 animate-scaleIn">
+            <div className="flex justify-between items-start mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                <DollarSign size={28} />
+              </div>
+              <button onClick={() => setSellerToResetBalance(null)} className="p-2 text-gray-400 hover:text-black">
+                <X size={20} />
+              </button>
+            </div>
+
+            <h3 className="text-2xl font-black italic uppercase tracking-tight text-gray-900 mb-2">
+              Reset Available <span className="text-amber-600">Balance</span>
+            </h3>
+            
+            <p className="text-xs text-gray-600 font-medium leading-relaxed mb-4">
+              You are about to reset the Available Balance for <strong className="text-gray-900 font-black">{sellerToResetBalance.seller.shopName || sellerToResetBalance.seller.fullName}</strong> after manual payment.
+            </p>
+
+            <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 mb-4 space-y-2 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400 uppercase font-black text-[9px] tracking-wider">Current Available Balance:</span>
+                <span className="text-amber-600 font-black text-base">${sellerToResetBalance.balance.toFixed(2)} USD</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400 uppercase font-black text-[9px] tracking-wider">New Available Balance:</span>
+                <span className="text-green-600 font-black text-base">$0.00 USD</span>
+              </div>
+            </div>
+
+            <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 text-blue-900 text-[11px] font-bold leading-relaxed mb-5 space-y-1">
+              <p className="flex items-center gap-1.5"><CheckCircle2 size={13} className="text-blue-600 shrink-0" /> Total Earnings and all previous earnings records remain unchanged.</p>
+              <p className="flex items-center gap-1.5"><CheckCircle2 size={13} className="text-blue-600 shrink-0" /> A payout of <strong>${sellerToResetBalance.balance.toFixed(2)} USD</strong> is saved to Payout History.</p>
+              <p className="flex items-center gap-1.5"><CheckCircle2 size={13} className="text-blue-600 shrink-0" /> Available Balance updates to $0.00 immediately in Firebase and Seller Panel.</p>
+            </div>
+
+            <div className="mb-6 space-y-1">
+              <label className="text-[10px] font-black uppercase text-gray-500 tracking-wider">Payment Method / Note (Optional)</label>
+              <input
+                type="text"
+                placeholder="e.g. Paid via Bank Transfer / EasyPaisa / JazzCash / Cash"
+                className="w-full bg-gray-50 border p-3 rounded-xl font-bold text-xs outline-none focus:ring-2 focus:ring-amber-500"
+                value={resetNote}
+                onChange={(e) => setResetNote(e.target.value)}
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                disabled={resetLoading}
+                onClick={handleConfirmResetBalance}
+                className="flex-1 bg-amber-600 hover:bg-black text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-amber-600/20 disabled:opacity-50"
+              >
+                {resetLoading ? 'Resetting Balance...' : 'Confirm & Reset to $0'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSellerToResetBalance(null)}
+                className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

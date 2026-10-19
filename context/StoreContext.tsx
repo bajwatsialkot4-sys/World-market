@@ -195,6 +195,7 @@ interface StoreContextType {
   addSellerEarning: (earning: Omit<SellerEarningRecord, 'id' | 'createdAt'>) => Promise<void>;
   addSellerPayout: (payout: Omit<SellerPayoutRecord, 'id' | 'createdAt' | 'status'>) => Promise<void>;
   reverseSellerPayout: (payoutId: string, reason: string, adminEmail: string) => Promise<void>;
+  resetSellerBalance: (sellerId: string, amount: number, adminEmail: string, note?: string) => Promise<void>;
   getSellerFinancials: (sellerId: string) => {
     totalEarnings: number;
     totalPaid: number;
@@ -911,6 +912,59 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
   };
 
+  const resetSellerBalance = async (sellerId: string, amount: number, adminEmail: string, note?: string) => {
+    const safeAmount = Number(amount);
+    if (isNaN(safeAmount) || safeAmount <= 0) {
+      throw new Error('Available balance is already $0.00 USD.');
+    }
+    const matchingSeller = sellers.find(s => s.id === sellerId);
+    const sellerName = matchingSeller?.shopName || matchingSeller?.fullName || 'Seller';
+
+    // 1. Record the reset payout transaction in sellerPayouts so Payout History and audit record remain preserved
+    const docRef = doc(collection(db, 'sellerPayouts'));
+    const payoutData: SellerPayoutRecord = {
+      id: docRef.id,
+      sellerId,
+      sellerName,
+      amount: safeAmount,
+      payoutDate: new Date().toISOString().split('T')[0],
+      paymentMethod: note?.trim() ? note.trim() : 'Manual Payment',
+      transactionReference: `RESET-${Date.now().toString().slice(-6)}`,
+      adminNote: note?.trim() 
+        ? `Balance reset to $0 after manual payment: ${note.trim()}`
+        : 'Available Balance reset to $0 after manual payment',
+      status: 'Paid',
+      createdAt: new Date().toISOString(),
+      createdByAdminEmail: adminEmail || 'admin',
+      emailDeliveryStatus: 'Sent'
+    };
+    await setDoc(docRef, sanitizeFirestoreData(payoutData));
+
+    // 2. Set the seller's Available Balance to $0 in Firebase sellers collection
+    try {
+      const sellerRef = doc(db, 'sellers', sellerId);
+      await updateDoc(sellerRef, {
+        availableBalance: 0,
+        lastPayoutDate: new Date().toISOString()
+      });
+    } catch (err) {
+      console.warn("Seller doc update warning (payout record created successfully):", err);
+    }
+
+    // 3. Send notification to the seller panel
+    await addNotification({
+      type: 'Payout Paid',
+      title: `Balance Paid & Reset: $${safeAmount.toFixed(2)} USD`,
+      message: `Your Available Balance was reset to $0.00 after manual disbursement of $${safeAmount.toFixed(2)} USD on ${payoutData.payoutDate}.`,
+      targetRole: 'seller',
+      sellerId,
+      amount: safeAmount,
+      paymentDate: payoutData.payoutDate,
+      paymentMethod: payoutData.paymentMethod,
+      transactionReference: payoutData.transactionReference
+    });
+  };
+
   const getSellerFinancials = useCallback((sellerId: string) => {
     const earnings = sellerEarnings.filter(e => e.sellerId === sellerId);
     const payouts = sellerPayouts.filter(p => p.sellerId === sellerId && p.status === 'Paid');
@@ -939,7 +993,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       addProduct, updateProduct, deleteProduct, addToCart, removeFromCart, clearCart,
       addSale, addSeller, updateSeller, updateSaleStatus, deleteSale, archiveSale, loadMoreProducts, searchProducts,
       addNotification, markNotificationAsRead,
-      addSellerEarning, addSellerPayout, reverseSellerPayout, getSellerFinancials
+      addSellerEarning, addSellerPayout, reverseSellerPayout, resetSellerBalance, getSellerFinancials
     }}>
       {children}
     </StoreContext.Provider>

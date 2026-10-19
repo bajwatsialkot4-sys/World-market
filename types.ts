@@ -159,6 +159,8 @@ export interface SellerInfo {
   verificationStatus: VerificationStatus;
   businessType: BusinessType;
   joinedDate: string;
+  availableBalance?: number;
+  lastPayoutDate?: string;
 }
 
 export interface AppNotification {
