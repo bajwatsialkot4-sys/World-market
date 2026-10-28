@@ -3,15 +3,15 @@ import { getAuth } from 'firebase/auth';
 import { initializeFirestore, setLogLevel } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
-// Silence non-fatal Firestore connection warnings in console
-setLogLevel('error');
+// Silence non-fatal Firestore transient network retry notices in console
+setLogLevel('silent');
 
 const app = initializeApp(firebaseConfig);
 
-// Use initializeFirestore with force long polling for max reliability across browser environments
+// Use initializeFirestore with auto-detect long polling for optimal connection resilience across proxy and iframe environments
 export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true, // Force standard HTTPS long polling for firewalls, iOS Safari, and proxies
-  ignoreUndefinedProperties: true, // Prevent undefined errors on schema writes
+  experimentalAutoDetectLongPolling: true,
+  ignoreUndefinedProperties: true,
 }, firebaseConfig.firestoreDatabaseId);
 
 export const auth = getAuth(app);

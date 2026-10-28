@@ -1,9 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { 
   X, Plus, Trash2, Edit2, ShieldCheck, Mail, LogIn, Bell, User as UserIcon, 
   Phone, MapPin, Globe, DollarSign, CheckCircle2, AlertTriangle, ArrowRight, 
-  RefreshCw, Check, AlertCircle, FileText, Send, Undo2, Archive, CreditCard
+  RefreshCw, Check, AlertCircle, FileText, Send, Undo2, Archive, CreditCard,
+  ExternalLink, Key, Package, Copy, Lock, Eye, ShoppingBag, MessageCircle
 } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { CATEGORIES, ADMIN_EMAILS } from '../constants';
@@ -24,6 +26,7 @@ const Admin: React.FC = () => {
   const { 
     products, sales, customers, sellers, notifications, unreadNotificationsCount,
     addProduct, updateProduct, deleteProduct, updateSaleStatus, deleteSale, archiveSale,
+    updateSeller,
     sellerEarnings, sellerPayouts, addSellerEarning, addSellerPayout, reverseSellerPayout, resetSellerBalance, getSellerFinancials,
     formatPrice, markNotificationAsRead 
   } = useStore();
@@ -79,6 +82,18 @@ const Admin: React.FC = () => {
   const [sellerToResetBalance, setSellerToResetBalance] = useState<{ seller: SellerInfo; balance: number } | null>(null);
   const [resetNote, setResetNote] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
+
+  // Seller Password Reset & WhatsApp Delivery State
+  const [sellerToResetPassword, setSellerToResetPassword] = useState<SellerInfo | null>(null);
+  const [generatedPassword, setGeneratedPassword] = useState('');
+  const [passwordResetSuccess, setPasswordResetSuccess] = useState<{ seller: SellerInfo; newPass: string } | null>(null);
+  const [passwordResetLoading, setPasswordResetLoading] = useState(false);
+  const [copiedCredentials, setCopiedCredentials] = useState(false);
+
+  // Seller Uploaded Products Modal State
+  const [sellerForProducts, setSellerForProducts] = useState<SellerInfo | null>(null);
+  const [productStatusUpdatingId, setProductStatusUpdatingId] = useState<string | null>(null);
+  const [copiedLinkNotice, setCopiedLinkNotice] = useState<string | null>(null);
 
   // New Product State
   const [isAddingProduct, setIsAddingProduct] = useState(false);
@@ -391,6 +406,160 @@ const Admin: React.FC = () => {
       showToast(err.message || 'Failed to reset balance', 'error');
     } finally {
       setResetLoading(false);
+    }
+  };
+
+  const generateSecureRandomPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+    let pass = 'WL-';
+    for (let i = 0; i < 8; i++) {
+      pass += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return pass;
+  };
+
+  const getWhatsAppCredentialsUrl = (seller: SellerInfo, newPass: string) => {
+    const rawPhone = seller.whatsapp || seller.contactNumber || '';
+    const cleanPhone = rawPhone.replace(/[^\d]/g, '');
+    const loginUrl = `${window.location.origin}/seller-login`;
+    const message = `Hello ${seller.fullName},\n\nYour W-LORD Market seller portal login credentials have been securely updated by administrator:\n\n🌐 Portal: ${loginUrl}\n👤 Username / Seller ID: ${seller.showName || seller.id}\n🔑 New Password: ${newPass}\n\nPlease keep these credentials confidential.`;
+    return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+  };
+
+  const computeSellerDetailedOverview = (seller: SellerInfo) => {
+    // All orders associated with this seller
+    const sellerOrders = sales.filter(s => 
+      s.sellerId === seller.id || 
+      (s.sellerShopName && (s.sellerShopName === seller.shopName || s.sellerShopName === seller.showName))
+    );
+
+    const totalOrdersCount = sellerOrders.length;
+    
+    // Completed orders only
+    const completedOrders = sellerOrders.filter(s => s.status === 'Completed');
+    const completedOrdersCount = completedOrders.length;
+
+    // Pending orders (in progress)
+    const pendingOrders = sellerOrders.filter(s => 
+      ['New Order', 'Pending Payment', 'Confirmed', 'Processing', 'Shipped'].includes(s.status)
+    );
+    const pendingOrdersCount = pendingOrders.length;
+
+    // Cancelled or refunded orders
+    const cancelledOrders = sellerOrders.filter(s => s.status === 'Cancelled');
+    const cancelledOrdersCount = cancelledOrders.length;
+
+    // Total sales (Gross Completed Sales) - strictly exclude unpaid or cancelled orders!
+    const grossCompletedSales = completedOrders.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+
+    // Seller commission & Admin commission
+    const creditedEarningsRecords = sellerEarnings.filter(e => e.sellerId === seller.id);
+    const totalCreditedEarnings = creditedEarningsRecords.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+    // Commission rate: default 5% or rank-based (Gold: 8.5%, Silver: 4%, Platinium/Standard: 5%)
+    const commissionRatePercent = seller.commissionRate 
+      ? seller.commissionRate 
+      : (seller.rank === 'Gold' ? 8.5 : seller.rank === 'Silver' ? 4 : 5);
+    const commissionRateFraction = commissionRatePercent / 100;
+
+    const sellerCommission = totalCreditedEarnings > 0 
+      ? totalCreditedEarnings 
+      : Math.round(grossCompletedSales * commissionRateFraction * 100) / 100;
+
+    const adminCommission = Math.max(0, Math.round((grossCompletedSales - sellerCommission) * 100) / 100);
+
+    // Paid payouts
+    const paidPayouts = sellerPayouts.filter(p => p.sellerId === seller.id && p.status === 'Paid');
+    const totalPaidOut = paidPayouts.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+    // Payable balance
+    const fin = getSellerFinancials(seller.id);
+    const sellerPayableBalance = fin.availableBalance;
+
+    // Products uploaded by this seller
+    const sellerProducts = products.filter(p => p.sellerId === seller.id || p.sellerId === seller.showName);
+
+    return {
+      sellerOrders,
+      totalOrdersCount,
+      completedOrdersCount,
+      pendingOrdersCount,
+      cancelledOrdersCount,
+      grossCompletedSales,
+      sellerCommission,
+      commissionRatePercent,
+      adminCommission,
+      sellerPayableBalance,
+      totalPaidOut,
+      sellerProducts,
+      isEligibleForPayout: fin.isEligibleForPayout
+    };
+  };
+
+  const handleResetSellerPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sellerToResetPassword) return;
+    const finalPassword = generatedPassword.trim();
+    if (!finalPassword) {
+      showToast('Please enter or generate a new password.', 'error');
+      return;
+    }
+    if (finalPassword.length < 6) {
+      showToast('Password should be at least 6 characters.', 'error');
+      return;
+    }
+
+    setPasswordResetLoading(true);
+    try {
+      await updateSeller(sellerToResetPassword.id, {
+        password: finalPassword,
+        passwordUpdatedAt: new Date().toISOString()
+      });
+      showToast(`Password successfully reset for ${sellerToResetPassword.fullName}.`, 'success');
+      setPasswordResetSuccess({
+        seller: sellerToResetPassword,
+        newPass: finalPassword
+      });
+      setSellerToResetPassword(null);
+      setGeneratedPassword('');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to update seller password', 'error');
+    } finally {
+      setPasswordResetLoading(false);
+    }
+  };
+
+  const handleToggleProductApproval = async (product: Product, newStatus: 'Approved' | 'Pending' | 'Rejected') => {
+    setProductStatusUpdatingId(product.id);
+    try {
+      await updateProduct(product.id, {
+        approvalStatus: newStatus
+      });
+      showToast(`Product "${product.name}" status updated to ${newStatus}.`, 'success');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to update product approval status', 'error');
+    } finally {
+      setProductStatusUpdatingId(null);
+    }
+  };
+
+  const copyToClipboard = async (text: string, label: string) => {
+    try {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopiedLinkNotice(label);
+      setTimeout(() => setCopiedLinkNotice(null), 3000);
+      showToast(`Copied ${label} to clipboard!`, 'success');
+    } catch (e) {
+      showToast(`Failed to copy to clipboard`, 'error');
     }
   };
 
@@ -996,76 +1165,191 @@ const Admin: React.FC = () => {
                 <table className="w-full text-left">
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-100">
-                      <th className="px-6 md:px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Seller & Shop</th>
-                      <th className="px-6 md:px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Financial Overview</th>
-                      <th className="px-6 md:px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">WhatsApp / Contact</th>
-                      <th className="px-6 md:px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Location</th>
-                      <th className="px-6 md:px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400 text-center">Rank</th>
-                      <th className="px-6 md:px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400">Status</th>
-                      <th className="px-6 md:px-10 py-6 text-[10px] font-black uppercase tracking-widest text-gray-400 text-right pr-12">Actions</th>
+                      <th className="px-6 md:px-8 py-5 text-[10px] font-black uppercase tracking-widest text-gray-400">Seller & Shop Link</th>
+                      <th className="px-6 md:px-8 py-5 text-[10px] font-black uppercase tracking-widest text-gray-400">Contact & WhatsApp</th>
+                      <th className="px-6 md:px-8 py-5 text-[10px] font-black uppercase tracking-widest text-gray-400">Bank / Payout Details</th>
+                      <th className="px-6 md:px-8 py-5 text-[10px] font-black uppercase tracking-widest text-gray-400">Orders</th>
+                      <th className="px-6 md:px-8 py-5 text-[10px] font-black uppercase tracking-widest text-gray-400">Financial Overview</th>
+                      <th className="px-6 md:px-8 py-5 text-[10px] font-black uppercase tracking-widest text-gray-400 text-center">Products</th>
+                      <th className="px-6 md:px-8 py-5 text-[10px] font-black uppercase tracking-widest text-gray-400">Status</th>
+                      <th className="px-6 md:px-8 py-5 text-[10px] font-black uppercase tracking-widest text-gray-400 text-right pr-10">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {sellers.map(s => {
-                      const fin = getSellerFinancials(s.id);
+                      const overview = computeSellerDetailedOverview(s);
+                      const shopPath = `/seller/${s.showName || s.id}`;
+                      const cleanPhone = (s.whatsapp || s.contactNumber || '').replace(/[^\d]/g, '');
+
                       return (
                         <tr key={s.id} className="hover:bg-gray-50/50 transition-colors group">
-                          <td className="px-6 md:px-10 py-6">
-                            <div className="flex flex-col">
+                          {/* Seller & Shop Link */}
+                          <td className="px-6 md:px-8 py-5">
+                            <div className="flex flex-col gap-1">
                               <span className="text-sm font-black uppercase tracking-tighter text-gray-900">{s.fullName}</span>
-                              <span className="text-[10px] text-blue-600 font-bold uppercase tracking-widest">{s.shopName || s.showName}</span>
-                              <span className="text-[9px] text-gray-400 font-bold uppercase truncate max-w-[150px]">{s.email}</span>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[10px] text-blue-600 font-bold uppercase tracking-wider">{s.shopName || s.showName}</span>
+                                <span className="text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-mono font-bold">ID: {s.id}</span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-0.5 text-[9px] text-gray-400">
+                                <span className="font-mono">User: <strong className="text-gray-700">{s.showName || s.id}</strong></span>
+                                <button
+                                  type="button"
+                                  onClick={() => copyToClipboard(s.showName || s.id, `Username for ${s.fullName}`)}
+                                  className="text-gray-400 hover:text-black"
+                                  title="Copy Login Username"
+                                >
+                                  <Copy size={11} />
+                                </button>
+                              </div>
+                              <div className="flex items-center gap-2 mt-1">
+                                <Link 
+                                  to={shopPath}
+                                  target="_blank"
+                                  className="inline-flex items-center gap-1 text-[9px] font-black text-blue-600 uppercase tracking-widest hover:underline"
+                                >
+                                  <span>Visit Shop</span>
+                                  <ExternalLink size={10} />
+                                </Link>
+                                <button
+                                  type="button"
+                                  onClick={() => copyToClipboard(`${window.location.origin}${shopPath}`, `Shop Link for ${s.shopName || s.showName}`)}
+                                  className="text-[9px] font-bold text-gray-400 hover:text-gray-700 uppercase"
+                                  title="Copy Shop URL"
+                                >
+                                  Copy Link
+                                </button>
+                              </div>
                             </div>
                           </td>
-                          <td className="px-6 md:px-10 py-6">
-                            <div className="flex flex-col gap-1">
-                              <div className="flex items-center gap-2">
-                                <span className="text-[9px] text-gray-400 uppercase font-bold">Earned:</span>
-                                <span className="text-xs font-black text-gray-900">${fin.totalEarnings.toFixed(2)}</span>
+
+                          {/* Contact & WhatsApp */}
+                          <td className="px-6 md:px-8 py-5">
+                            <div className="flex flex-col gap-1 text-xs">
+                              <a href={`mailto:${s.email}`} className="text-[10px] text-blue-600 font-bold hover:underline truncate max-w-[160px]">
+                                {s.email}
+                              </a>
+                              {cleanPhone && (
+                                <a 
+                                  href={`https://wa.me/${cleanPhone}`} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer" 
+                                  className="inline-flex items-center gap-1 text-green-600 font-black text-[11px] hover:underline"
+                                  title="Open WhatsApp chat with seller"
+                                >
+                                  <Phone size={12} />
+                                  <span>{s.whatsapp}</span>
+                                </a>
+                              )}
+                              <span className="text-[9px] text-gray-400 font-bold uppercase">{s.city}, {s.country}</span>
+                            </div>
+                          </td>
+
+                          {/* Bank / Payout Details */}
+                          <td className="px-6 md:px-8 py-5">
+                            <div className="max-w-[180px] bg-gray-50 p-2.5 rounded-xl border border-gray-100">
+                              <span className="text-[8px] font-black uppercase text-gray-400 tracking-wider block mb-0.5">Payout Method</span>
+                              <p className="text-[10px] font-bold text-gray-700 line-clamp-2 leading-tight">
+                                {s.paymentDetails || 'No bank/payout details registered yet.'}
+                              </p>
+                            </div>
+                          </td>
+
+                          {/* Orders Breakdown */}
+                          <td className="px-6 md:px-8 py-5">
+                            <div className="flex flex-col gap-0.5 text-[10px]">
+                              <span className="font-bold text-gray-700">Total: <strong className="text-gray-900">{overview.totalOrdersCount}</strong></span>
+                              <span className="text-green-600 font-bold">✓ Completed: <strong>{overview.completedOrdersCount}</strong></span>
+                              <span className="text-blue-600 font-bold">⏳ Pending: <strong>{overview.pendingOrdersCount}</strong></span>
+                              {overview.cancelledOrdersCount > 0 && (
+                                <span className="text-red-500 font-bold">✕ Cancelled: <strong>{overview.cancelledOrdersCount}</strong></span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Financial Overview */}
+                          <td className="px-6 md:px-8 py-5">
+                            <div className="flex flex-col gap-1 text-[10px]">
+                              <div>
+                                <span className="text-gray-400 uppercase text-[8px] font-black tracking-wider">Gross Sales: </span>
+                                <span className="font-black text-gray-900 text-xs">${overview.grossCompletedSales.toFixed(2)}</span>
                               </div>
                               <div className="flex items-center gap-2">
-                                <span className="text-[9px] text-gray-400 uppercase font-bold">Paid:</span>
-                                <span className="text-xs font-bold text-purple-600">${fin.totalPaid.toFixed(2)}</span>
+                                <span className="text-emerald-700 font-bold">Seller: ${overview.sellerCommission.toFixed(2)}</span>
+                                <span className="text-gray-400">|</span>
+                                <span className="text-purple-700 font-bold">Admin: ${overview.adminCommission.toFixed(2)}</span>
                               </div>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <span className="text-[9px] text-gray-400 uppercase font-bold">Balance:</span>
-                                <span className="text-xs font-black text-green-600">${fin.availableBalance.toFixed(2)}</span>
-                                {fin.isEligibleForPayout && (
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="text-gray-400 font-bold">Payable:</span>
+                                <span className="font-black text-green-600 text-xs">${overview.sellerPayableBalance.toFixed(2)}</span>
+                                {overview.isEligibleForPayout && (
                                   <span className="bg-green-100 text-green-800 text-[8px] font-black px-1.5 py-0.5 rounded">≥$30</span>
                                 )}
                               </div>
                             </div>
                           </td>
-                          <td className="px-6 md:px-10 py-6">
-                            <div className="flex flex-col">
-                               <span className="text-xs font-black text-green-600 tracking-tight">{s.whatsapp}</span>
-                               <span className="text-[9px] text-gray-400 font-bold uppercase">{s.contactNumber}</span>
-                            </div>
+
+                          {/* Products */}
+                          <td className="px-6 md:px-8 py-5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => setSellerForProducts(s)}
+                              className="inline-flex items-center gap-1.5 bg-gray-100 hover:bg-black hover:text-white px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all"
+                              title="View all products uploaded by this seller"
+                            >
+                              <Package size={12} />
+                              <span>{overview.sellerProducts.length} Items</span>
+                            </button>
                           </td>
-                          <td className="px-6 md:px-10 py-6 text-xs font-bold text-gray-900 uppercase">{s.location || `${s.city}, ${s.country}`}</td>
-                          <td className="px-6 md:px-10 py-6 text-center">
-                            <span className={`px-4 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest ${
-                              s.rank === 'Gold' ? 'bg-yellow-50 text-yellow-600' : 'bg-gray-50 text-gray-600'
+
+                          {/* Status */}
+                          <td className="px-6 md:px-8 py-5">
+                            <span className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${
+                              s.isVerified || s.verificationStatus === 'Verified' 
+                                ? 'bg-green-50 text-green-700 border border-green-200' 
+                                : 'bg-orange-50 text-orange-700 border border-orange-200'
                             }`}>
-                              {s.rank}
+                              {s.verificationStatus || (s.isVerified ? 'VERIFIED' : 'PENDING')}
                             </span>
                           </td>
-                          <td className="px-6 md:px-10 py-6">
-                            <span className={`px-4 py-2 rounded-full text-[8px] font-black uppercase tracking-widest ${
-                              s.isVerified ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-600'
-                            }`}>
-                              {s.isVerified ? 'VERIFIED' : 'PENDING'}
-                            </span>
-                          </td>
-                          <td className="px-6 md:px-10 py-6 text-right pr-6 md:pr-12">
+
+                          {/* Actions */}
+                          <td className="px-6 md:px-8 py-5 text-right pr-6 md:pr-10">
                             <div className="flex flex-wrap justify-end gap-1.5">
+                              {/* Products button */}
+                              <button
+                                type="button"
+                                onClick={() => setSellerForProducts(s)}
+                                className="bg-gray-100 hover:bg-black hover:text-white text-gray-800 px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all shadow-sm"
+                                title="View uploaded products"
+                              >
+                                Products
+                              </button>
+
+                              {/* Reset Password button */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSellerToResetPassword(s);
+                                  setGeneratedPassword(generateSecureRandomPassword());
+                                  setPasswordResetSuccess(null);
+                                }}
+                                className="bg-indigo-600 hover:bg-black text-white px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all shadow-sm"
+                                title="Securely reset seller password"
+                              >
+                                <span className="flex items-center gap-1">
+                                  <Key size={10} /> Password
+                                </span>
+                              </button>
+
                               {/* Add Earnings button */}
                               <button 
+                                type="button"
                                 onClick={() => {
                                   setEarningSeller(s);
                                   setEarningForm({ orderId: '', amount: '', adminNote: '', allowDuplicate: false });
                                 }}
-                                className="bg-emerald-600 hover:bg-black text-white px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all shadow-sm"
+                                className="bg-emerald-600 hover:bg-black text-white px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all shadow-sm"
                                 title="Manually record seller earnings"
                               >
                                 + Earnings
@@ -1073,28 +1357,30 @@ const Admin: React.FC = () => {
                               
                               {/* Reset Available Balance to $0 button */}
                               <button 
-                                disabled={fin.availableBalance <= 0}
+                                type="button"
+                                disabled={overview.sellerPayableBalance <= 0}
                                 onClick={() => {
-                                  setSellerToResetBalance({ seller: s, balance: fin.availableBalance });
+                                  setSellerToResetBalance({ seller: s, balance: overview.sellerPayableBalance });
                                   setResetNote('');
                                 }}
-                                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all shadow-sm ${
-                                  fin.availableBalance > 0
+                                className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all shadow-sm ${
+                                  overview.sellerPayableBalance > 0
                                     ? 'bg-amber-600 hover:bg-black text-white' 
                                     : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
                                 }`}
-                                title={fin.availableBalance > 0 ? `Reset Available Balance ($${fin.availableBalance.toFixed(2)}) to $0.00 after manual payment` : 'Available balance is already $0.00'}
+                                title={overview.sellerPayableBalance > 0 ? `Reset Available Balance ($${overview.sellerPayableBalance.toFixed(2)}) to $0.00 after manual payment` : 'Available balance is already $0.00'}
                               >
-                                Reset Balance (${fin.availableBalance.toFixed(2)})
+                                Reset (${overview.sellerPayableBalance.toFixed(2)})
                               </button>
                               
                               {/* Record Payout button */}
                               <button 
-                                disabled={!fin.isEligibleForPayout}
+                                type="button"
+                                disabled={!overview.isEligibleForPayout}
                                 onClick={() => {
                                   setPayoutSeller(s);
                                   setPayoutForm({
-                                    amount: fin.availableBalance.toFixed(2),
+                                    amount: overview.sellerPayableBalance.toFixed(2),
                                     payoutDate: new Date().toISOString().split('T')[0],
                                     paymentMethod: 'International Bank Transfer',
                                     transactionReference: '',
@@ -1102,19 +1388,21 @@ const Admin: React.FC = () => {
                                     confirmedSent: false
                                   });
                                 }}
-                                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all shadow-sm ${
-                                  fin.isEligibleForPayout 
+                                className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all shadow-sm ${
+                                  overview.isEligibleForPayout 
                                     ? 'bg-blue-600 hover:bg-black text-white' 
                                     : 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-60'
                                 }`}
-                                title={fin.isEligibleForPayout ? 'Record manual payout' : 'Available balance is below $30.00 minimum threshold'}
+                                title={overview.isEligibleForPayout ? 'Record manual payout' : 'Available balance is below $30.00 minimum threshold'}
                               >
-                                Record Payout
+                                Payout
                               </button>
 
+                              {/* Details button */}
                               <button 
+                                type="button"
                                 onClick={() => setSelectedSeller(s)}
-                                className="bg-black text-white px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-purple-600 transition-all shadow-sm"
+                                className="bg-black text-white px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-purple-600 transition-all shadow-sm"
                               >
                                 Details
                               </button>
@@ -1128,79 +1416,378 @@ const Admin: React.FC = () => {
               </div>
             </div>
 
-            {/* Seller Details Modal */}
-            {selectedSeller && (
-              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fadeIn">
-                <div className="bg-white rounded-[2rem] shadow-2xl max-w-2xl w-full overflow-hidden animate-scaleIn">
-                  <div className="bg-purple-600 text-white p-8 flex justify-between items-center">
-                    <div>
-                      <h2 className="text-3xl font-black italic tracking-tighter uppercase">Seller <span className="text-black underline">Profile</span></h2>
-                      <p className="text-purple-100 text-[10px] font-black uppercase tracking-widest mt-2 px-1">Shop: {selectedSeller.shopName || selectedSeller.showName}</p>
-                    </div>
-                    <button onClick={() => setSelectedSeller(null)} className="bg-white/10 p-2 rounded-full hover:bg-white/20 transition-all text-white"><X size={20} /></button>
-                  </div>
-                  <div className="p-8 space-y-8 max-h-[70vh] overflow-y-auto">
-                    <div className="grid grid-cols-2 gap-8 text-left">
-                      <div className="space-y-4">
-                        <section>
-                          <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2 flex items-center gap-2"><UserIcon size={12}/> Personal Info</h4>
-                          <p className="text-sm font-black uppercase text-gray-900">{selectedSeller.fullName}</p>
-                          <p className="text-xs font-bold text-gray-500 mt-1 flex items-center gap-2"><Mail size={12}/> {selectedSeller.email}</p>
-                        </section>
-                        <section>
-                          <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2 flex items-center gap-2"><Phone size={12}/> Contact</h4>
-                          <p className="text-xs font-bold text-gray-900">WA: {selectedSeller.whatsapp}</p>
-                          <p className="text-xs font-bold text-gray-500 mt-1">ALT: {selectedSeller.contactNumber}</p>
-                        </section>
+            {/* Seller Comprehensive Details & Financial Modal */}
+            {selectedSeller && (() => {
+              const overview = computeSellerDetailedOverview(selectedSeller);
+              const shopPath = `/seller/${selectedSeller.showName || selectedSeller.id}`;
+              const cleanPhone = (selectedSeller.whatsapp || selectedSeller.contactNumber || '').replace(/[^\d]/g, '');
+
+              return (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-fadeIn">
+                  <div className="bg-white rounded-[2rem] shadow-2xl max-w-4xl w-full overflow-hidden animate-scaleIn flex flex-col max-h-[90vh]">
+                    {/* Header */}
+                    <div className="bg-black text-white p-6 md:p-8 flex justify-between items-center shrink-0">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className="text-blue-400 text-[10px] font-black uppercase tracking-widest">Seller Control & Audit</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest ${
+                            selectedSeller.isVerified || selectedSeller.verificationStatus === 'Verified' ? 'bg-green-500/20 text-green-300' : 'bg-orange-500/20 text-orange-300'
+                          }`}>
+                            {selectedSeller.verificationStatus || (selectedSeller.isVerified ? 'VERIFIED' : 'PENDING')}
+                          </span>
+                        </div>
+                        <h2 className="text-2xl md:text-3xl font-black italic tracking-tighter uppercase">
+                          {selectedSeller.fullName} <span className="text-blue-500 font-normal">({selectedSeller.shopName || selectedSeller.showName})</span>
+                        </h2>
+                        <div className="flex items-center gap-3 mt-1 text-xs text-gray-400 font-mono flex-wrap">
+                          <span>Unique ID: <strong className="text-white font-bold">#{selectedSeller.id}</strong></span>
+                          <span>•</span>
+                          <span>Username: <strong className="text-blue-400 font-bold">{selectedSeller.showName || selectedSeller.id}</strong></span>
+                        </div>
                       </div>
-                      <div className="space-y-4">
-                         <section>
-                          <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2 flex items-center gap-2"><MapPin size={12}/> Location</h4>
-                          <p className="text-xs font-bold text-gray-900 uppercase">{selectedSeller.city}, {selectedSeller.country}</p>
-                          <p className="text-[10px] font-bold text-gray-500 mt-1 uppercase">{selectedSeller.location}</p>
-                        </section>
-                        <section>
-                          <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2 flex items-center gap-2"><ShieldCheck size={12}/> business</h4>
-                          <p className="text-[10px] font-black text-purple-600 bg-purple-50 px-2 py-1 rounded inline-block uppercase">{selectedSeller.businessType}</p>
-                        </section>
-                      </div>
+                      <button onClick={() => setSelectedSeller(null)} className="bg-white/10 p-2.5 rounded-full hover:bg-white/20 transition-all text-white shrink-0">
+                        <X size={20} />
+                      </button>
                     </div>
 
-                    <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100">
-                      <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-4">Financial Overview</h4>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-[9px] font-bold text-gray-400 uppercase">Sales Volume</p>
-                          <p className="text-xl font-black text-green-600">{selectedSeller.totalSales}</p>
+                    {/* Scrollable Body */}
+                    <div className="p-6 md:p-8 space-y-8 overflow-y-auto">
+                      
+                      {/* Section 1: Account, Credentials & Contact Information */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50 p-6 rounded-3xl border border-gray-100">
+                        <div className="space-y-4">
+                          <div>
+                            <span className="text-[9px] font-black uppercase tracking-widest text-gray-400 block mb-1">Account & Identity</span>
+                            <p className="text-base font-black uppercase text-gray-900">{selectedSeller.fullName}</p>
+                            <p className="text-xs text-blue-600 font-bold uppercase mt-0.5">Shop: {selectedSeller.shopName || selectedSeller.showName}</p>
+                            <div className="flex items-center gap-2 mt-2">
+                              <span className="text-[10px] font-mono text-gray-500 bg-white px-2 py-1 rounded-md border border-gray-200">
+                                Login Username: <strong>{selectedSeller.showName || selectedSeller.id}</strong>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(selectedSeller.showName || selectedSeller.id, 'Login Username')}
+                                className="text-gray-400 hover:text-black p-1"
+                                title="Copy Username"
+                              >
+                                <Copy size={12} />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <span className="text-[9px] font-black uppercase tracking-widest text-gray-400 block mb-1">Shop Front Link</span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Link 
+                                to={shopPath}
+                                target="_blank"
+                                className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-black text-white px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                              >
+                                <span>Visit Public Shop</span>
+                                <ExternalLink size={11} />
+                              </Link>
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(`${window.location.origin}${shopPath}`, 'Shop Link')}
+                                className="bg-white hover:bg-gray-100 text-gray-700 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-gray-200 transition-all flex items-center gap-1"
+                              >
+                                <Copy size={11} /> Copy Link
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <span className="text-[9px] font-black uppercase tracking-widest text-gray-400 block mb-1">Security & Authentication</span>
+                            <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-gray-200">
+                              <div>
+                                <p className="text-xs font-mono font-bold text-gray-500">Password: ••••••••</p>
+                                <p className="text-[8px] text-gray-400 font-bold uppercase">Encrypted in Firebase • Plaintext never stored</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSellerToResetPassword(selectedSeller);
+                                  setGeneratedPassword(generateSecureRandomPassword());
+                                  setPasswordResetSuccess(null);
+                                }}
+                                className="bg-indigo-600 hover:bg-black text-white px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1"
+                              >
+                                <Key size={10} /> Reset Password
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-[9px] font-bold text-gray-400 uppercase">Ranking</p>
-                          <p className="text-xl font-black text-gray-900">{selectedSeller.rank}</p>
-                        </div>
-                        <div>
-                          <p className="text-[9px] font-bold text-gray-400 uppercase">Response Time</p>
-                          <p className="text-xl font-black text-gray-900">{selectedSeller.responseTime}</p>
-                        </div>
-                        <div>
-                          <p className="text-[9px] font-bold text-gray-400 uppercase">Joined Date</p>
-                          <p className="text-[10px] font-black text-gray-900 mt-2 uppercase">{new Date(selectedSeller.joinedDate).toLocaleDateString()}</p>
+
+                        <div className="space-y-4">
+                          <div>
+                            <span className="text-[9px] font-black uppercase tracking-widest text-gray-400 block mb-1">Contact Channels</span>
+                            <div className="space-y-1.5 text-xs">
+                              <p className="flex items-center gap-2 font-bold text-gray-700">
+                                <Mail size={13} className="text-gray-400" />
+                                <a href={`mailto:${selectedSeller.email}`} className="text-blue-600 hover:underline">{selectedSeller.email}</a>
+                              </p>
+                              {cleanPhone && (
+                                <p className="flex items-center gap-2 font-bold text-gray-700">
+                                  <Phone size={13} className="text-green-600" />
+                                  <a href={`https://wa.me/${cleanPhone}`} target="_blank" rel="noopener noreferrer" className="text-green-600 hover:underline">
+                                    WA: {selectedSeller.whatsapp} (Click to Chat)
+                                  </a>
+                                </p>
+                              )}
+                              <p className="flex items-center gap-2 text-gray-500 font-medium">
+                                <Phone size={13} className="text-gray-400" /> Alt: {selectedSeller.contactNumber || 'N/A'}
+                              </p>
+                              <p className="flex items-center gap-2 text-gray-500 font-medium">
+                                <MapPin size={13} className="text-gray-400" /> {selectedSeller.city}, {selectedSeller.country}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Registered Payout / Bank Details */}
+                          <div>
+                            <span className="text-[9px] font-black uppercase tracking-widest text-gray-400 block mb-1">Registered Payout & Bank Details</span>
+                            <div className="bg-white p-4 rounded-2xl border border-gray-200">
+                              <p className="text-xs font-bold text-gray-800 whitespace-pre-wrap leading-relaxed">
+                                {selectedSeller.paymentDetails || 'No bank/payout details registered yet. Seller can configure this in their Seller Panel.'}
+                              </p>
+                              <p className="text-[8px] text-gray-400 uppercase font-black tracking-wider mt-2">
+                                Used by administrators for manual payment disbursements
+                              </p>
+                            </div>
+                          </div>
                         </div>
                       </div>
+
+                      {/* Section 2: Comprehensive Financial Overview */}
+                      <div>
+                        <div className="flex justify-between items-center mb-4">
+                          <div>
+                            <h3 className="text-lg font-black uppercase tracking-tight text-gray-900">Financial Ledger & Orders</h3>
+                            <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">
+                              Calculated strictly from actual completed orders and verified payment records
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                          {/* Gross Sales */}
+                          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-gray-400 block mb-1">Completed Sales (Gross)</span>
+                            <p className="text-xl font-black text-gray-900">${overview.grossCompletedSales.toFixed(2)}</p>
+                            <span className="text-[8px] text-gray-400 font-medium mt-1 block">Unpaid/cancelled excluded</span>
+                          </div>
+
+                          {/* Seller Commission */}
+                          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-emerald-600 block mb-1">Seller Commission</span>
+                            <p className="text-xl font-black text-emerald-600">${overview.sellerCommission.toFixed(2)}</p>
+                            <span className="text-[8px] text-gray-400 font-medium mt-1 block">Rate: {overview.commissionRatePercent}% / manual credit</span>
+                          </div>
+
+                          {/* Admin Commission */}
+                          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-purple-600 block mb-1">Admin Commission</span>
+                            <p className="text-xl font-black text-purple-600">${overview.adminCommission.toFixed(2)}</p>
+                            <span className="text-[8px] text-gray-400 font-medium mt-1 block">Platform share</span>
+                          </div>
+
+                          {/* Seller Payable Balance */}
+                          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-green-700 block mb-1">Payable Balance</span>
+                            <p className="text-xl font-black text-green-700">${overview.sellerPayableBalance.toFixed(2)}</p>
+                            <span className="text-[8px] text-gray-400 font-medium mt-1 block">
+                              {overview.isEligibleForPayout ? '✓ Eligible for Payout (≥$30)' : 'Below $30 threshold'}
+                            </span>
+                          </div>
+
+                          {/* Orders Summary */}
+                          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-gray-400 block mb-1">Completed Orders</span>
+                            <p className="text-xl font-black text-green-600">{overview.completedOrdersCount}</p>
+                            <span className="text-[8px] text-gray-400 font-medium mt-1 block">Total orders: {overview.totalOrdersCount}</span>
+                          </div>
+
+                          {/* Pending Orders */}
+                          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-blue-600 block mb-1">Pending Orders</span>
+                            <p className="text-xl font-black text-blue-600">{overview.pendingOrdersCount}</p>
+                            <span className="text-[8px] text-gray-400 font-medium mt-1 block">In processing or shipping</span>
+                          </div>
+
+                          {/* Cancelled Orders */}
+                          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-red-500 block mb-1">Cancelled Orders</span>
+                            <p className="text-xl font-black text-red-500">{overview.cancelledOrdersCount}</p>
+                            <span className="text-[8px] text-gray-400 font-medium mt-1 block">Refunded / rejected</span>
+                          </div>
+
+                          {/* Total Paid Out */}
+                          <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-gray-400 block mb-1">Total Paid to Date</span>
+                            <p className="text-xl font-black text-gray-900">${overview.totalPaidOut.toFixed(2)}</p>
+                            <span className="text-[8px] text-gray-400 font-medium mt-1 block">Recorded disbursements</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section 3: Uploaded Products by this Seller */}
+                      <div>
+                        <div className="flex justify-between items-center mb-4">
+                          <div>
+                            <h3 className="text-lg font-black uppercase tracking-tight text-gray-900">
+                              Uploaded Products ({overview.sellerProducts.length})
+                            </h3>
+                            <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">
+                              Catalog items associated with Seller ID #{selectedSeller.id}
+                            </p>
+                          </div>
+                          {overview.sellerProducts.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSellerForProducts(selectedSeller);
+                                setSelectedSeller(null);
+                              }}
+                              className="text-xs font-black text-blue-600 uppercase tracking-widest hover:underline flex items-center gap-1"
+                            >
+                              <span>Manage All in Full View</span>
+                              <ArrowRight size={12} />
+                            </button>
+                          )}
+                        </div>
+
+                        {overview.sellerProducts.length === 0 ? (
+                          <div className="bg-gray-50 p-10 rounded-2xl border border-dashed border-gray-200 text-center text-gray-400">
+                            <Package className="mx-auto mb-2 opacity-30" size={32} />
+                            <p className="text-xs font-black uppercase tracking-wider">No products uploaded yet</p>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-72 overflow-y-auto p-1">
+                            {overview.sellerProducts.map(p => {
+                              const productPath = `/product/${p.id}`;
+                              const status = p.approvalStatus || 'Approved';
+                              return (
+                                <div key={p.id} className="bg-gray-50 p-3 rounded-2xl border border-gray-100 flex gap-3 items-center hover:border-blue-200 transition-all">
+                                  <div className="w-16 h-16 rounded-xl bg-gray-200 overflow-hidden shrink-0">
+                                    <img src={p.image} alt={p.name} className="w-full h-full object-cover" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <h4 className="text-xs font-black uppercase text-gray-900 truncate">{p.name}</h4>
+                                    <p className="text-[9px] font-black uppercase text-blue-600 tracking-wider">{p.category} • {formatPrice(p.price)}</p>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      <span className={`px-2 py-0.5 rounded text-[8px] font-bold ${
+                                        p.stock > 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                      }`}>
+                                        {p.stock > 0 ? `${p.stock} units` : 'Out of Stock'}
+                                      </span>
+                                      <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase ${
+                                        status === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
+                                        status === 'Pending' ? 'bg-amber-100 text-amber-800' :
+                                        'bg-red-100 text-red-800'
+                                      }`}>
+                                        {status}
+                                      </span>
+                                      <Link
+                                        to={productPath}
+                                        target="_blank"
+                                        className="text-[9px] font-black text-blue-600 uppercase hover:underline ml-auto flex items-center gap-0.5"
+                                      >
+                                        <span>Link</span>
+                                        <ExternalLink size={8} />
+                                      </Link>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
                     </div>
 
-                    <div className="pt-4">
-                      <h4 className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-3">Verification Info</h4>
-                      <p className="text-xs font-bold text-gray-600 flex items-center gap-2">
-                        Status: <span className={`font-black uppercase ${selectedSeller.isVerified ? 'text-green-600' : 'text-orange-500'}`}>{selectedSeller.verificationStatus}</span>
-                      </p>
+                    {/* Bottom Action Footer */}
+                    <div className="p-6 md:p-8 pt-4 border-t border-gray-100 flex flex-wrap gap-2 justify-between items-center bg-gray-50 shrink-0">
+                      <div className="flex flex-wrap gap-2">
+                        {/* Reset Password */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSellerToResetPassword(selectedSeller);
+                            setGeneratedPassword(generateSecureRandomPassword());
+                            setPasswordResetSuccess(null);
+                          }}
+                          className="bg-indigo-600 hover:bg-black text-white px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-sm"
+                        >
+                          <Key size={13} /> Reset Password
+                        </button>
+
+                        {/* Add Earnings */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEarningSeller(selectedSeller);
+                            setEarningForm({ orderId: '', amount: '', adminNote: '', allowDuplicate: false });
+                          }}
+                          className="bg-emerald-600 hover:bg-black text-white px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm"
+                        >
+                          + Add Earnings
+                        </button>
+
+                        {/* Reset Balance */}
+                        <button
+                          type="button"
+                          disabled={overview.sellerPayableBalance <= 0}
+                          onClick={() => {
+                            setSellerToResetBalance({ seller: selectedSeller, balance: overview.sellerPayableBalance });
+                            setResetNote('');
+                          }}
+                          className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm ${
+                            overview.sellerPayableBalance > 0
+                              ? 'bg-amber-600 hover:bg-black text-white' 
+                              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                          }`}
+                        >
+                          Reset Balance (${overview.sellerPayableBalance.toFixed(2)})
+                        </button>
+
+                        {/* Record Payout */}
+                        <button
+                          type="button"
+                          disabled={!overview.isEligibleForPayout}
+                          onClick={() => {
+                            setPayoutSeller(selectedSeller);
+                            setPayoutForm({
+                              amount: overview.sellerPayableBalance.toFixed(2),
+                              payoutDate: new Date().toISOString().split('T')[0],
+                              paymentMethod: 'International Bank Transfer',
+                              transactionReference: '',
+                              adminNote: '',
+                              confirmedSent: false
+                            });
+                          }}
+                          className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm ${
+                            overview.isEligibleForPayout 
+                              ? 'bg-blue-600 hover:bg-black text-white' 
+                              : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                          }`}
+                        >
+                          Record Payout
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSeller(null)}
+                        className="bg-black text-white px-8 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-gray-800 transition-all"
+                      >
+                        Close
+                      </button>
                     </div>
                   </div>
-                  <div className="p-8 pt-0 flex gap-4">
-                      <button onClick={() => setSelectedSeller(null)} className="flex-grow bg-black text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest shadow-xl hover:bg-purple-600 transition-all">Close</button>
-                    </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         )}
 
@@ -2080,6 +2667,296 @@ const Admin: React.FC = () => {
                 className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all"
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Seller Password Modal */}
+      {sellerToResetPassword && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[250] flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-lg w-full overflow-hidden p-8 animate-scaleIn">
+            <div className="flex justify-between items-start mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <Key size={26} />
+              </div>
+              <button 
+                onClick={() => {
+                  setSellerToResetPassword(null);
+                  setGeneratedPassword('');
+                }} 
+                className="p-2 text-gray-400 hover:text-black"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <h3 className="text-2xl font-black italic uppercase tracking-tight text-gray-900 mb-1">
+              Reset Seller <span className="text-indigo-600">Password</span>
+            </h3>
+            
+            <p className="text-xs text-gray-500 font-medium leading-relaxed mb-5">
+              Generate or set a new password for <strong className="text-gray-900 font-bold">{sellerToResetPassword.fullName}</strong> ({sellerToResetPassword.shopName || 'Shop'}). Stored password hashes remain protected and are never exposed.
+            </p>
+
+            <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 mb-5 space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-gray-400 font-black text-[10px] uppercase tracking-wider">Seller ID:</span>
+                <span className="font-mono font-bold text-gray-800">{sellerToResetPassword.id}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400 font-black text-[10px] uppercase tracking-wider">Login Username:</span>
+                <span className="font-mono font-bold text-gray-800">{sellerToResetPassword.showName || sellerToResetPassword.id}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400 font-black text-[10px] uppercase tracking-wider">WhatsApp:</span>
+                <span className="font-medium text-gray-800">{sellerToResetPassword.whatsapp || sellerToResetPassword.contactNumber || 'Not provided'}</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleResetSellerPassword} className="space-y-4">
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="text-[10px] font-black uppercase text-gray-500 tracking-wider">New Password</label>
+                  <button
+                    type="button"
+                    onClick={() => setGeneratedPassword(generateSecureRandomPassword())}
+                    className="text-[10px] font-black uppercase tracking-wider text-indigo-600 hover:text-indigo-800 underline font-bold"
+                  >
+                    Generate Strong Password
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    required
+                    type="text"
+                    placeholder="Enter or generate new password"
+                    value={generatedPassword}
+                    onChange={(e) => setGeneratedPassword(e.target.value)}
+                    className="w-full bg-gray-50 border p-3.5 pr-10 rounded-xl font-mono text-sm font-bold text-gray-900 outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <Lock size={16} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                </div>
+              </div>
+
+              <div className="bg-amber-50 p-3 rounded-xl border border-amber-100 text-amber-900 text-[11px] font-medium leading-relaxed">
+                ℹ️ After saving, you will be given an instant link to deliver the new login credentials directly to the seller via WhatsApp or copy them safely.
+              </div>
+
+              <div className="flex gap-3 pt-3">
+                <button
+                  type="submit"
+                  disabled={passwordResetLoading || !generatedPassword.trim()}
+                  className="flex-1 bg-indigo-600 hover:bg-black text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-indigo-600/20 disabled:opacity-50"
+                >
+                  {passwordResetLoading ? 'Updating Password...' : 'Save & Prepare Delivery'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSellerToResetPassword(null);
+                    setGeneratedPassword('');
+                  }}
+                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Password Reset Success / WhatsApp Delivery Modal */}
+      {passwordResetSuccess && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[260] flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-lg w-full overflow-hidden p-8 animate-scaleIn">
+            <div className="flex justify-between items-start mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-green-50 text-green-600 flex items-center justify-center">
+                <CheckCircle2 size={28} />
+              </div>
+              <button 
+                onClick={() => {
+                  setPasswordResetSuccess(null);
+                  setCopiedCredentials(false);
+                }} 
+                className="p-2 text-gray-400 hover:text-black"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <h3 className="text-2xl font-black italic uppercase tracking-tight text-gray-900 mb-1">
+              Password <span className="text-green-600">Updated</span>
+            </h3>
+            
+            <p className="text-xs text-gray-500 font-medium leading-relaxed mb-5">
+              The login password for <strong className="text-gray-900 font-bold">{passwordResetSuccess.seller.fullName}</strong> has been updated securely. Deliver the new credentials to the seller:
+            </p>
+
+            <div className="bg-gray-900 text-white p-5 rounded-2xl font-mono text-xs space-y-2.5 mb-5 relative group">
+              <div className="text-gray-400 text-[10px] uppercase font-bold tracking-widest">Portal Login Credentials</div>
+              <div><span className="text-gray-400">Portal:</span> <span className="text-blue-300 underline">{window.location.origin}/seller-login</span></div>
+              <div><span className="text-gray-400">Username:</span> <span className="text-amber-400 font-bold">{passwordResetSuccess.seller.showName || passwordResetSuccess.seller.id}</span></div>
+              <div><span className="text-gray-400">Seller ID:</span> <span className="text-gray-300">{passwordResetSuccess.seller.id}</span></div>
+              <div><span className="text-gray-400">New Password:</span> <span className="text-green-400 font-bold">{passwordResetSuccess.newPass}</span></div>
+            </div>
+
+            <div className="space-y-3">
+              {(passwordResetSuccess.seller.whatsapp || passwordResetSuccess.seller.contactNumber) && (
+                <a
+                  href={getWhatsAppCredentialsUrl(passwordResetSuccess.seller, passwordResetSuccess.newPass)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full bg-green-600 hover:bg-green-700 text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all flex items-center justify-center gap-2 shadow-lg shadow-green-600/20"
+                >
+                  <MessageCircle size={18} />
+                  Send Credentials via WhatsApp
+                </a>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  const creds = `W-LORD Market Seller Login:\nPortal: ${window.location.origin}/seller-login\nUsername: ${passwordResetSuccess.seller.showName || passwordResetSuccess.seller.id}\nPassword: ${passwordResetSuccess.newPass}`;
+                  copyToClipboard(creds, 'Credentials');
+                  setCopiedCredentials(true);
+                  setTimeout(() => setCopiedCredentials(false), 3000);
+                }}
+                className="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 py-3.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2"
+              >
+                {copiedCredentials ? <Check size={16} className="text-green-600" /> : <Copy size={16} />}
+                {copiedCredentials ? 'Copied to Clipboard!' : 'Copy Credentials to Clipboard'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setPasswordResetSuccess(null);
+                  setCopiedCredentials(false);
+                }}
+                className="w-full bg-gray-900 hover:bg-black text-white py-3.5 rounded-xl font-black text-xs uppercase tracking-widest transition-all"
+              >
+                Done / Close
+              </button>
+            </div>
+            
+            <p className="text-[10px] text-gray-400 text-center font-bold uppercase tracking-wider mt-4">
+              🔒 For security, this password will not be shown again once closed.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Seller Uploaded Products Modal */}
+      {sellerForProducts && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[250] flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col animate-scaleIn">
+            <div className="bg-gray-900 text-white p-6 md:p-8 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center text-amber-400">
+                  <Package size={24} />
+                </div>
+                <div>
+                  <h3 className="text-xl md:text-2xl font-black italic uppercase tracking-tight">
+                    {sellerForProducts.shopName || sellerForProducts.fullName} <span className="text-amber-400">Products</span>
+                  </h3>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mt-0.5">
+                    Seller ID: {sellerForProducts.id} &bull; Total Products: {products.filter(p => p.sellerId === sellerForProducts.id || p.sellerId === sellerForProducts.showName).length}
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSellerForProducts(null)} 
+                className="bg-white/10 p-2.5 rounded-full hover:bg-white/20 transition-all text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 md:p-8 overflow-y-auto flex-1 space-y-4">
+              {(() => {
+                const sellerProds = products.filter(p => p.sellerId === sellerForProducts.id || p.sellerId === sellerForProducts.showName);
+                if (sellerProds.length === 0) {
+                  return (
+                    <div className="text-center py-16 bg-gray-50 rounded-3xl border border-dashed border-gray-200">
+                      <ShoppingBag size={48} className="mx-auto text-gray-300 mb-3" />
+                      <h4 className="text-base font-black uppercase text-gray-700 tracking-tight">No Products Found</h4>
+                      <p className="text-xs text-gray-400 font-medium mt-1">This seller has not uploaded any products yet.</p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {sellerProds.map(prod => {
+                      const approval = prod.approvalStatus || 'Approved';
+                      const isUpdating = productStatusUpdatingId === prod.id;
+                      return (
+                        <div key={prod.id} className="bg-gray-50 border border-gray-200 rounded-2xl p-4 flex gap-4 hover:border-black transition-all">
+                          <img 
+                            src={prod.image} 
+                            alt={prod.name} 
+                            className="w-20 h-20 rounded-xl object-cover shrink-0 bg-white border border-gray-100" 
+                          />
+                          <div className="flex-1 min-w-0 flex flex-col justify-between">
+                            <div>
+                              <div className="flex items-start justify-between gap-2">
+                                <h5 className="font-black text-xs text-gray-900 truncate" title={prod.name}>{prod.name}</h5>
+                                <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full shrink-0 ${
+                                  approval === 'Approved' ? 'bg-green-100 text-green-700' :
+                                  approval === 'Rejected' ? 'bg-red-100 text-red-700' :
+                                  'bg-amber-100 text-amber-700'
+                                }`}>
+                                  {approval}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="font-black text-xs text-blue-600">${prod.price.toFixed(2)}</span>
+                                <span className="text-[10px] text-gray-400 font-bold uppercase">&bull; {prod.category}</span>
+                                <span className="text-[10px] text-gray-400 font-bold uppercase">&bull; Stock: {prod.stock !== undefined ? prod.stock : 'N/A'}</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-200 mt-2">
+                              <Link
+                                to={`/product/${prod.id}`}
+                                target="_blank"
+                                className="text-[10px] font-black uppercase tracking-wider text-blue-600 hover:text-black flex items-center gap-1"
+                              >
+                                View Live <ExternalLink size={10} />
+                              </Link>
+
+                              <div className="flex items-center gap-1">
+                                <select
+                                  disabled={isUpdating}
+                                  value={approval}
+                                  onChange={(e) => handleToggleProductApproval(prod, e.target.value as any)}
+                                  className="text-[10px] font-bold bg-white border rounded-lg px-2 py-1 outline-none text-gray-800 disabled:opacity-50"
+                                >
+                                  <option value="Approved">Approved</option>
+                                  <option value="Pending">Pending</option>
+                                  <option value="Rejected">Rejected</option>
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="p-4 md:p-6 bg-gray-50 border-t border-gray-100 flex justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => setSellerForProducts(null)}
+                className="bg-gray-900 hover:bg-black text-white px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all"
+              >
+                Close
               </button>
             </div>
           </div>

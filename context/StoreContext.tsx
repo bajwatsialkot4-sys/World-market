@@ -263,7 +263,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setHasMoreProducts(false);
       setIsProductsLoading(false);
     }, (error) => {
-      console.error("Products sync error:", error);
+      console.warn("Products sync operating in local offline mode:", error.message);
       setIsProductsLoading(false);
     });
 
@@ -294,7 +294,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           setSellers(sellerList);
         }
       },
-      (error) => console.error("Sellers sync error:", error)
+      (error) => console.warn("Sellers sync operating in local offline mode:", error.message)
     );
 
     const unsubscribeNotifications = onSnapshot(

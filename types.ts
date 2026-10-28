@@ -59,6 +59,7 @@ export interface Product {
   badges?: string[];
   tags?: string[];
   ratingCount?: number;
+  approvalStatus?: 'Approved' | 'Pending' | 'Rejected';
   ratingBreakdown?: {
     5: number;
     4: number;
@@ -161,6 +162,8 @@ export interface SellerInfo {
   joinedDate: string;
   availableBalance?: number;
   lastPayoutDate?: string;
+  passwordUpdatedAt?: string;
+  commissionRate?: number;
 }
 
 export interface AppNotification {
