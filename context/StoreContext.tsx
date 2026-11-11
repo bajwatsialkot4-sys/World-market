@@ -205,11 +205,28 @@ interface StoreContextType {
   };
 }
 
+const getInitialCart = (): CartItem[] => {
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = localStorage.getItem('wl_market_cart');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(item => item && item.id && typeof item.price === 'number');
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to load stored cart:", e);
+    }
+  }
+  return [];
+};
+
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [products, setProducts] = useState<Product[]>(getInitialProducts);
-  const [cart, setCart] = useState<CartItem[]>([]);
+  const [cart, setCart] = useState<CartItem[]>(getInitialCart);
   const [customers, setCustomers] = useState<Customer[]>(MOCK_CUSTOMERS);
   const [sales, setSales] = useState<SaleRecord[]>([]);
   const [sellers, setSellers] = useState<SellerInfo[]>([]);
@@ -343,6 +360,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       unsubscribePayouts();
     };
   }, []);
+
+  // Persist cart to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('wl_market_cart', JSON.stringify(cart));
+      } catch (e) {
+        console.warn("Failed to persist cart:", e);
+      }
+    }
+  }, [cart]);
 
   const unreadNotificationsCount = useMemo(() => {
     return notifications.filter(n => !n.isRead).length;

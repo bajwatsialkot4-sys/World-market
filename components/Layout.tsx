@@ -82,20 +82,22 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent | TouchEvent) => {
-      const target = event.target as Node;
+      const rawTarget = event.target;
+      const target = (rawTarget instanceof Element ? rawTarget : (rawTarget as Node)?.parentElement) as Element | null;
       
       // Prevent click/touch disruption on links and buttons on mobile by bypassing premature state changes
-      if (target instanceof Element && (
+      if (target && (
         target.closest('#mobile-cart-btn') || 
         target.closest('#desktop-cart-btn') || 
+        target.closest('#mobile-drawer-cart-btn') ||
         target.closest('a') || 
         target.closest('button')
       )) {
         return;
       }
 
-      const inDesktop = desktopSearchRef.current && desktopSearchRef.current.contains(target);
-      const inMobile = mobileSearchRef.current && mobileSearchRef.current.contains(target);
+      const inDesktop = desktopSearchRef.current && desktopSearchRef.current.contains(target as Node);
+      const inMobile = mobileSearchRef.current && mobileSearchRef.current.contains(target as Node);
       if (!inDesktop && !inMobile) {
         setShowSuggestions(prev => {
           if (prev) return false;
@@ -112,6 +114,16 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   }, []);
 
   const cartCount = cart.reduce((acc, item) => acc + item.quantity, 0);
+
+  const handleCartClick = (e?: React.MouseEvent | React.TouchEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setShowSuggestions(false);
+    setIsMobileMenuOpen(false);
+    navigate('/cart');
+  };
 
   const suggestions = useMemo(() => {
     if (!searchQuery.trim()) {
@@ -175,7 +187,11 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   };
 
   const getLink = (to: string) => {
-    const RESERVED_GLOBAL = ['/admin', '/register-show'];
+    // Cart is always global - never prepend showName or dynamic subpath
+    if (to === '/cart' || to.startsWith('/cart')) {
+      return '/cart';
+    }
+    const RESERVED_GLOBAL = ['/admin', '/register-show', '/cart', '/checkout', '/seller-login'];
     if (currentShow && !RESERVED_GLOBAL.includes(to)) {
       const cleanTo = to === '/' ? '' : to.startsWith('/') ? to : `/${to}`;
       return `/${currentShow}${cleanTo}`;
@@ -446,11 +462,12 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                </Link>
                <Link 
                   id="mobile-cart-btn"
-                  to={getLink('/cart')} 
-                  className="relative flex items-center justify-center min-w-[54px] min-h-[54px] p-2 rounded-lg active:bg-white/10 z-[70] cursor-pointer flex-shrink-0 select-none pointer-events-auto"
+                  to="/cart" 
+                  onClick={handleCartClick}
+                  className="relative flex items-center justify-center min-w-[50px] min-h-[50px] p-2 rounded-lg active:bg-white/10 z-[70] cursor-pointer flex-shrink-0 select-none pointer-events-auto touch-manipulation"
                   aria-label="Shopping Cart"
                >
-                  <ShoppingCart size={28} className="pointer-events-none" />
+                  <ShoppingCart size={28} className="pointer-events-none text-white" />
                   {cartCount > 0 && (
                     <span className="absolute top-1 right-1 bg-yellow-400 text-black text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full border-2 border-[#232f3e] pointer-events-none shadow-sm">
                       {cartCount}
@@ -494,7 +511,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             </div>
 
             {/* Desktop Cart */}
-            <Link id="desktop-cart-btn" to={getLink('/cart')} className="hidden md:flex relative items-center gap-2 group md:hover:outline outline-white outline-1 h-full px-4 transition-all cursor-pointer select-none">
+            <Link id="desktop-cart-btn" to="/cart" onClick={handleCartClick} className="hidden md:flex relative items-center gap-2 group md:hover:outline outline-white outline-1 h-full px-4 transition-all cursor-pointer select-none">
               <div className="relative pointer-events-none">
                 <ShoppingCart size={32} className="text-white" />
                 {cartCount > 0 && (
@@ -582,6 +599,27 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                   </button>
                </div>
                <h3 className="text-xl font-black italic tracking-tighter">Hello, Sign In</h3>
+            </div>
+            
+            {/* Direct Cart Access in Mobile Drawer */}
+            <div className="bg-[#febd69] p-4 border-b border-[#f3a847]">
+               <button
+                 id="mobile-drawer-cart-btn"
+                 type="button"
+                 onClick={handleCartClick}
+                 className="flex items-center justify-between w-full font-black text-black text-sm uppercase tracking-wider py-1 cursor-pointer active:scale-98 transition-transform touch-manipulation"
+               >
+                 <div className="flex items-center gap-3">
+                   <ShoppingCart size={22} className="text-black" />
+                   <span>Shopping Cart</span>
+                 </div>
+                 <div className="flex items-center gap-2">
+                   <span className="bg-black text-yellow-400 px-3 py-1 rounded-full text-xs font-black">
+                     {cartCount} {cartCount === 1 ? 'Item' : 'Items'}
+                   </span>
+                   <ArrowRight size={16} />
+                 </div>
+               </button>
             </div>
             
             <div className="flex-grow overflow-y-auto bg-gray-100">

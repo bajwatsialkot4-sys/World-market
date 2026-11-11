@@ -4,11 +4,13 @@ import { Link } from 'react-router-dom';
 import { useStore } from '../context/StoreContext';
 import { ADMIN_WHATSAPP } from '../constants';
 import { getWhatsAppLink } from '../services/routingUtils';
+import { AlertCircle, RefreshCw, ShoppingBag } from 'lucide-react';
 
 const Cart: React.FC = () => {
   const { cart, removeFromCart, clearCart, activeShowName, referralCode, activeSeller, addSale } = useStore();
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [cartError, setCartError] = useState<string | null>(null);
   const [customerInfo, setCustomerInfo] = useState({
     name: '',
     email: '',
@@ -19,13 +21,18 @@ const Cart: React.FC = () => {
     zipCode: ''
   });
 
-  const subtotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-  const shipping = subtotal > 100 ? 0 : 15;
+  const safeCart = Array.isArray(cart) ? cart : [];
+  const subtotal = safeCart.reduce((acc, item) => {
+    const p = typeof item?.price === 'number' && !isNaN(item.price) ? item.price : 0;
+    const q = typeof item?.quantity === 'number' && !isNaN(item.quantity) && item.quantity > 0 ? item.quantity : 1;
+    return acc + (p * q);
+  }, 0);
+  const shipping = subtotal > 100 ? 0 : (subtotal > 0 ? 15 : 0);
   const tax = subtotal * 0.08;
   const total = subtotal + shipping + tax;
 
   const getProductLink = (id: string) => {
-    if (activeShowName) {
+    if (activeShowName && !['cart', 'checkout', 'search', 'category'].includes(activeShowName)) {
       return `/${activeShowName}/products/${id}`;
     }
     return `/products/${id}`;
@@ -115,7 +122,35 @@ Secure manual payment confirmation via WhatsApp.`;
     }
   };
 
-  if (cart.length === 0) {
+  if (cartError) {
+    return (
+      <div className="min-h-[70vh] flex flex-col items-center justify-center px-4 bg-gray-50 text-center">
+        <div className="w-16 h-16 bg-red-50 text-red-600 rounded-full flex items-center justify-center mb-6">
+          <AlertCircle size={36} />
+        </div>
+        <h2 className="text-3xl font-black uppercase italic tracking-tighter mb-3">Notice Loading Cart</h2>
+        <p className="text-gray-500 font-medium text-xs max-w-md mb-8 leading-relaxed">
+          {cartError}
+        </p>
+        <div className="flex gap-4">
+          <button 
+            onClick={() => setCartError(null)} 
+            className="bg-black text-white px-8 py-4 rounded-full font-black text-xs uppercase tracking-widest hover:bg-blue-600 transition-all flex items-center gap-2"
+          >
+            <RefreshCw size={14} /> Retry
+          </button>
+          <Link 
+            to="/products" 
+            className="bg-gray-200 text-gray-800 px-8 py-4 rounded-full font-black text-xs uppercase tracking-widest hover:bg-gray-300 transition-all flex items-center gap-2"
+          >
+            <ShoppingBag size={14} /> Shop Products
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (safeCart.length === 0) {
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center px-4 bg-gray-50">
         <div className="text-9xl mb-10 drop-shadow-2xl grayscale">🛒</div>
@@ -232,44 +267,51 @@ Secure manual payment confirmation via WhatsApp.`;
               </div>
             ) : (
               <>
-                {cart.map(item => (
-                  <div key={item.id} className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-8 group hover:shadow-xl transition-all">
-                    <Link to={getProductLink(item.id)} className="w-full md:w-40 aspect-square bg-gray-100 rounded-2xl overflow-hidden flex-shrink-0">
-                      <img src={item.image} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
-                    </Link>
-                    <div className="flex-grow">
-                      <div className="flex justify-between items-start">
-                        <Link to={getProductLink(item.id)}>
-                          <h3 className="text-xl font-black uppercase tracking-tight mb-1 hover:text-blue-600 transition-colors">{item.name}</h3>
-                          <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{item.category}</p>
-                          <div className="flex gap-2 mt-2">
-                            {item.selectedSize && (
-                              <span className="text-[8px] font-black uppercase bg-gray-100 px-2 py-1 rounded border">Size: {item.selectedSize}</span>
-                            )}
-                            {item.selectedColor && (
-                              <span className="text-[8px] font-black uppercase bg-gray-100 px-2 py-1 rounded border">Color: {item.selectedColor}</span>
-                            )}
-                          </div>
-                        </Link>
-                        <span className="text-2xl font-black tracking-tighter">${(item.price * item.quantity).toFixed(2)}</span>
-                      </div>
-                      <p className="text-sm text-gray-400 mt-4 line-clamp-2 font-medium">{item.description}</p>
-                      
-                      <div className="mt-8 flex items-center justify-between">
-                        <div className="flex items-center bg-gray-50 rounded-xl px-4 py-2 border">
-                          <span className="text-xs font-black uppercase mr-4 text-gray-400">Qty</span>
-                          <span className="text-sm font-black">{item.quantity}</span>
+                {safeCart.map((item, idx) => {
+                  const itemPrice = typeof item.price === 'number' && !isNaN(item.price) ? item.price : 0;
+                  const itemQty = typeof item.quantity === 'number' && !isNaN(item.quantity) && item.quantity > 0 ? item.quantity : 1;
+                  const itemTotal = itemPrice * itemQty;
+                  const itemKey = `${item.id || 'item'}-${item.selectedSize || 's'}-${item.selectedColor || 'c'}-${idx}`;
+
+                  return (
+                    <div key={itemKey} className="bg-white p-8 rounded-3xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-8 group hover:shadow-xl transition-all">
+                      <Link to={getProductLink(item.id)} className="w-full md:w-40 aspect-square bg-gray-100 rounded-2xl overflow-hidden flex-shrink-0">
+                        <img src={item.image} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                      </Link>
+                      <div className="flex-grow">
+                        <div className="flex justify-between items-start">
+                          <Link to={getProductLink(item.id)}>
+                            <h3 className="text-xl font-black uppercase tracking-tight mb-1 hover:text-blue-600 transition-colors">{item.name}</h3>
+                            <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{item.category}</p>
+                            <div className="flex gap-2 mt-2">
+                              {item.selectedSize && (
+                                <span className="text-[8px] font-black uppercase bg-gray-100 px-2 py-1 rounded border">Size: {item.selectedSize}</span>
+                              )}
+                              {item.selectedColor && (
+                                <span className="text-[8px] font-black uppercase bg-gray-100 px-2 py-1 rounded border">Color: {item.selectedColor}</span>
+                              )}
+                            </div>
+                          </Link>
+                          <span className="text-2xl font-black tracking-tighter">${itemTotal.toFixed(2)}</span>
                         </div>
-                        <button 
-                          onClick={() => removeFromCart(item.id, item.selectedSize, item.selectedColor)}
-                          className="text-[10px] font-black uppercase text-red-500 hover:underline tracking-widest"
-                        >
-                          Remove Item
-                        </button>
+                        <p className="text-sm text-gray-400 mt-4 line-clamp-2 font-medium">{item.description}</p>
+                        
+                        <div className="mt-8 flex items-center justify-between">
+                          <div className="flex items-center bg-gray-50 rounded-xl px-4 py-2 border">
+                            <span className="text-xs font-black uppercase mr-4 text-gray-400">Qty</span>
+                            <span className="text-sm font-black">{itemQty}</span>
+                          </div>
+                          <button 
+                            onClick={() => removeFromCart(item.id, item.selectedSize, item.selectedColor)}
+                            className="text-[10px] font-black uppercase text-red-500 hover:underline tracking-widest"
+                          >
+                            Remove Item
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 <button onClick={clearCart} className="text-[10px] font-black uppercase text-gray-400 hover:text-black tracking-[0.3em] transition-colors">Clear All Items</button>
               </>
             )}

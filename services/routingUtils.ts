@@ -5,7 +5,10 @@
  */
 
 const RESERVED_NAMES = [
-  'products', 'ai-designer', 'contact', 'admin', 'cart', 'register-show', 'checkout', 'sport-store'
+  'products', 'ai-designer', 'contact', 'admin', 'cart', 'register-show', 'checkout', 'sport-store',
+  'search', 'category', 'privacy-policy', 'shipping-policy', 'about-us', 'contact-us', 'faq',
+  'track-order', 'terms', 'refund-policy', 'blog', 'seller', 'seller-login', 'seller-panel',
+  'seller-dashboard', 'seller-ranking', 'product'
 ];
 
 export const getEnvironmentMode = () => {
@@ -21,7 +24,7 @@ export const getEnvironmentMode = () => {
 
 export const detectShowName = () => {
   try {
-    const hostname = window.location.hostname;
+    const hostname = window.location.hostname.toLowerCase();
     const pathname = window.location.pathname;
     const hash = window.location.hash;
     
@@ -29,7 +32,7 @@ export const detectShowName = () => {
     if (hash && hash.startsWith('#/')) {
       const hashSegments = hash.substring(2).split('/').filter(Boolean);
       if (hashSegments.length > 0) {
-        const firstSegment = hashSegments[0].toLowerCase();
+        const firstSegment = hashSegments[0].toLowerCase().split('?')[0];
         if (!RESERVED_NAMES.includes(firstSegment)) {
           return firstSegment;
         }
@@ -39,18 +42,22 @@ export const detectShowName = () => {
     // 2. Check the first path segment (e.g., /arslan/products -> arslan)
     const pathSegments = pathname.split('/').filter(Boolean);
     if (pathSegments.length > 0) {
-      const firstSegment = pathSegments[0].toLowerCase();
+      const firstSegment = pathSegments[0].toLowerCase().split('?')[0];
       if (!RESERVED_NAMES.includes(firstSegment)) {
         return firstSegment;
       }
     }
 
-    // 2. Fallback: Check for subdomains
+    // 3. Fallback: Check for custom seller subdomains (exclude cloud run, aistudio, and standard platform prefixes)
+    if (hostname.includes('.run.app') || hostname.includes('aistudio') || hostname.includes('localhost') || hostname.includes('127.0.0.1')) {
+      return null;
+    }
+
     const parts = hostname.split('.');
     if (parts.length > 2) {
       const subdomain = parts[0].toLowerCase();
       const ignored = ['www', 'preview', 'dev', 'api', 'app', 'github', 'vercel', 'world-market-shop'];
-      if (!ignored.includes(subdomain)) {
+      if (!ignored.includes(subdomain) && !subdomain.startsWith('ais-')) {
         return subdomain;
       }
     }
