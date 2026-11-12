@@ -182,9 +182,10 @@ interface StoreContextType {
   addToCart: (product: Product, quantity?: number, selectedSize?: string, selectedColor?: string) => void;
   removeFromCart: (productId: string, selectedSize?: string, selectedColor?: string) => void;
   clearCart: () => void;
-  addSale: (sale: Omit<SaleRecord, 'id' | 'date'>) => Promise<void>;
-  addSeller: (seller: Omit<SellerInfo, 'id' | 'joinedDate' | 'totalSales' | 'rating' | 'rank' | 'isVerified' | 'verificationStatus'>) => Promise<void>;
+  addSeller: (seller: Omit<SellerInfo, 'id' | 'joinedDate' | 'totalSales' | 'rating' | 'rank' | 'isVerified' | 'verificationStatus'>) => Promise<SellerInfo>;
   updateSeller: (id: string, updates: Partial<SellerInfo>) => Promise<void>;
+  deleteSeller: (id: string) => Promise<void>;
+  addSale: (newSale: Omit<SaleRecord, 'id' | 'date'>) => Promise<void>;
   updateSaleStatus: (id: string, status: SaleRecord['status']) => Promise<void>;
   deleteSale: (id: string) => Promise<void>;
   archiveSale: (id: string) => Promise<void>;
@@ -812,9 +813,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   };
 
-  const addSeller = async (newS: Omit<SellerInfo, 'id' | 'joinedDate' | 'totalSales' | 'rating' | 'rank' | 'isVerified' | 'verificationStatus'>) => {
+  const addSeller = async (newS: Omit<SellerInfo, 'id' | 'joinedDate' | 'totalSales' | 'rating' | 'rank' | 'isVerified' | 'verificationStatus'>): Promise<SellerInfo> => {
     const docRef = doc(collection(db, 'sellers'));
-    const sellerData = {
+    const sellerData: SellerInfo = {
       ...newS,
       id: docRef.id,
       joinedDate: new Date().toISOString(),
@@ -826,6 +827,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       responseTime: "24h"
     };
     await setDoc(docRef, sanitizeFirestoreData(sellerData));
+    setSellers(prev => [...prev.filter(s => s.id !== docRef.id), sellerData]);
+    return sellerData;
+  };
+
+  const deleteSeller = async (id: string): Promise<void> => {
+    try {
+      const docRef = doc(db, 'sellers', id);
+      await deleteDoc(docRef);
+      setSellers(prev => prev.filter(s => s.id !== id));
+    } catch (e) {
+      console.error("Error deleting seller account:", e);
+      throw e;
+    }
   };
 
   const updateSeller = async (id: string, updates: Partial<SellerInfo>) => {
@@ -1019,7 +1033,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       currency, language, quickViewProduct, isProductsLoading, hasMoreProducts,
       setCurrency, setLanguage, setQuickViewProduct, formatPrice,
       addProduct, updateProduct, deleteProduct, addToCart, removeFromCart, clearCart,
-      addSale, addSeller, updateSeller, updateSaleStatus, deleteSale, archiveSale, loadMoreProducts, searchProducts,
+      addSale, addSeller, updateSeller, deleteSeller, updateSaleStatus, deleteSale, archiveSale, loadMoreProducts, searchProducts,
       addNotification, markNotificationAsRead,
       addSellerEarning, addSellerPayout, reverseSellerPayout, resetSellerBalance, getSellerFinancials
     }}>

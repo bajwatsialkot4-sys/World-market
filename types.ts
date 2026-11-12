@@ -145,6 +145,7 @@ export interface SellerInfo {
   whatsapp: string;
   email: string;
   password?: string;
+  passwordHash?: string;
   country: string;
   city: string;
   location?: string;

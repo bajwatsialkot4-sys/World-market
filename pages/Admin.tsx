@@ -26,7 +26,7 @@ const Admin: React.FC = () => {
   const { 
     products, sales, customers, sellers, notifications, unreadNotificationsCount,
     addProduct, updateProduct, deleteProduct, updateSaleStatus, deleteSale, archiveSale,
-    updateSeller,
+    updateSeller, deleteSeller,
     sellerEarnings, sellerPayouts, addSellerEarning, addSellerPayout, reverseSellerPayout, resetSellerBalance, getSellerFinancials,
     formatPrice, markNotificationAsRead 
   } = useStore();
@@ -82,6 +82,11 @@ const Admin: React.FC = () => {
   const [sellerToResetBalance, setSellerToResetBalance] = useState<{ seller: SellerInfo; balance: number } | null>(null);
   const [resetNote, setResetNote] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
+
+  // Delete Seller Account State
+  const [sellerToDelete, setSellerToDelete] = useState<SellerInfo | null>(null);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // Seller Password Reset & WhatsApp Delivery State
   const [sellerToResetPassword, setSellerToResetPassword] = useState<SellerInfo | null>(null);
@@ -406,6 +411,26 @@ const Admin: React.FC = () => {
       showToast(err.message || 'Failed to reset balance', 'error');
     } finally {
       setResetLoading(false);
+    }
+  };
+
+  const handleConfirmDeleteSeller = async () => {
+    if (!sellerToDelete) return;
+    setDeleteLoading(true);
+    try {
+      const sellerDisplayName = sellerToDelete.shopName || sellerToDelete.fullName || sellerToDelete.showName;
+      await deleteSeller(sellerToDelete.id);
+      showToast(`Seller account "${sellerDisplayName}" was successfully deleted. Order and payment records are preserved.`, 'success');
+      setSellerToDelete(null);
+      setDeleteConfirmInput('');
+      if (selectedSeller?.id === sellerToDelete.id) {
+        setSelectedSeller(null);
+      }
+    } catch (err: any) {
+      console.error('Failed to delete seller account:', err);
+      showToast(err.message || 'Failed to delete seller account', 'error');
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -1406,6 +1431,20 @@ const Admin: React.FC = () => {
                               >
                                 Details
                               </button>
+
+                              {/* Delete Seller Account button */}
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  setSellerToDelete(s);
+                                  setDeleteConfirmInput('');
+                                }}
+                                className="bg-red-50 text-red-600 border border-red-200 hover:bg-red-600 hover:text-white px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all shadow-sm flex items-center gap-1"
+                                title="Delete Seller Account"
+                              >
+                                <Trash2 size={11} />
+                                <span>Delete</span>
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -1773,6 +1812,20 @@ const Admin: React.FC = () => {
                           }`}
                         >
                           Record Payout
+                        </button>
+
+                        {/* Delete Seller Account */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSellerToDelete(selectedSeller);
+                            setDeleteConfirmInput('');
+                          }}
+                          className="bg-red-50 border border-red-200 text-red-600 hover:bg-red-600 hover:text-white px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm flex items-center gap-1.5"
+                          title="Delete seller account"
+                        >
+                          <Trash2 size={13} />
+                          <span>Delete Seller</span>
                         </button>
                       </div>
 
@@ -2664,6 +2717,107 @@ const Admin: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setSellerToResetBalance(null)}
+                className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Seller Account Confirmation Modal */}
+      {sellerToDelete && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[250] flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl max-w-lg w-full overflow-hidden p-8 animate-scaleIn">
+            <div className="flex justify-between items-start mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center">
+                <Trash2 size={26} />
+              </div>
+              <button 
+                onClick={() => {
+                  setSellerToDelete(null);
+                  setDeleteConfirmInput('');
+                }} 
+                className="p-2 text-gray-400 hover:text-black"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="inline-block bg-red-100 text-red-700 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest mb-3">
+              Admin Security Action
+            </div>
+
+            <h3 className="text-2xl font-black italic uppercase tracking-tight text-gray-900 mb-2">
+              Delete Seller <span className="text-red-600">Account</span>
+            </h3>
+            
+            <p className="text-xs text-gray-600 font-medium leading-relaxed mb-4">
+              Are you sure you want to permanently delete the seller account for <strong className="text-gray-900 font-black">{sellerToDelete.shopName || sellerToDelete.fullName}</strong>?
+            </p>
+
+            {/* Seller Summary Box */}
+            <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 mb-4 space-y-2 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400 uppercase font-black text-[9px] tracking-wider">Shop Name:</span>
+                <span className="text-gray-900 font-black">{sellerToDelete.shopName || sellerToDelete.showName}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400 uppercase font-black text-[9px] tracking-wider">Seller ID:</span>
+                <span className="text-gray-700 font-mono text-[10px]">{sellerToDelete.id}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400 uppercase font-black text-[9px] tracking-wider">Registered Email:</span>
+                <span className="text-gray-700 font-bold">{sellerToDelete.email}</span>
+              </div>
+            </div>
+
+            {/* Safety Guarantee */}
+            <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 text-emerald-950 text-[11px] font-bold leading-relaxed mb-5 space-y-1">
+              <p className="flex items-center gap-1.5"><CheckCircle2 size={13} className="text-emerald-600 shrink-0" /> Orders, customer transactions, and sales records remain <strong>safely preserved</strong>.</p>
+              <p className="flex items-center gap-1.5"><CheckCircle2 size={13} className="text-emerald-600 shrink-0" /> Historical payout records and balance audits are <strong>strictly preserved</strong>.</p>
+              <p className="flex items-center gap-1.5"><CheckCircle2 size={13} className="text-emerald-600 shrink-0" /> Only the seller authentication profile and login access will be removed.</p>
+            </div>
+
+            {/* Confirmation Input to prevent accidental clicks */}
+            <div className="mb-6 space-y-2">
+              <label className="text-[10px] font-black uppercase text-gray-600 tracking-wider block">
+                To prevent accidental deletion, type <strong className="text-red-600 select-all font-mono">DELETE</strong> below:
+              </label>
+              <input
+                type="text"
+                placeholder="Type DELETE to confirm"
+                className="w-full bg-gray-50 border p-3 rounded-xl font-bold text-xs outline-none focus:ring-2 focus:ring-red-500 uppercase tracking-wider"
+                value={deleteConfirmInput}
+                onChange={(e) => setDeleteConfirmInput(e.target.value)}
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                disabled={deleteLoading || (deleteConfirmInput.trim().toUpperCase() !== 'DELETE' && deleteConfirmInput.trim().toLowerCase() !== (sellerToDelete.shopName || sellerToDelete.showName || '').toLowerCase())}
+                onClick={handleConfirmDeleteSeller}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-red-600/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {deleteLoading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Deleting Seller...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={14} />
+                    <span>Confirm Delete Seller</span>
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSellerToDelete(null);
+                  setDeleteConfirmInput('');
+                }}
                 className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-4 rounded-xl font-black text-xs uppercase tracking-widest transition-all"
               >
                 Cancel
