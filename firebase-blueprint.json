@@ -16,6 +16,7 @@
         "rating": { "type": "number" },
         "reviews": { "type": "integer" },
         "badges": { "type": "array", "items": { "type": "string" } },
+        "manualViews": { "type": "integer", "description": "Manual product view count configured by Admin" },
         "datePosted": { "type": "string", "format": "date-time" }
       },
       "required": ["name", "price", "category", "image"]

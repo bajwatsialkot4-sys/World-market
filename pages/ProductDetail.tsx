@@ -266,7 +266,7 @@ Secure international payment confirmation.`;
                  <Link to="/" className="text-[13px] text-[#007185] hover:text-[#c45500] hover:underline">Visit the {activeSeller ? activeSeller.shopName : 'W-LORD MARKET'} Store</Link>
               </div>
               <h1 className="text-2xl font-medium text-gray-900 leading-tight mb-2 tracking-tight">{product.name}</h1>
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex flex-wrap items-center gap-2 mb-1">
                 <div className="flex items-center">
                   <span className="text-sm font-bold mr-1 text-gray-900">{product.rating}</span>
                   <div className="flex text-[#ffa41c]">
@@ -279,6 +279,15 @@ Secure international payment confirmation.`;
                 <span className="text-sm text-[#007185] hover:text-[#c45500] hover:underline cursor-pointer">
                   {((product.sales || 0) * 1.5).toFixed(0)} ratings
                 </span>
+                {typeof product.manualViews === 'number' && (
+                  <>
+                    <span className="text-gray-300">|</span>
+                    <span className="inline-flex items-center gap-1 text-sm text-gray-600 font-medium" data-testid="product-views">
+                      <Eye size={14} className="text-gray-500" />
+                      <span>{product.manualViews.toLocaleString()} views</span>
+                    </span>
+                  </>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <div className="bg-[#232f3e] text-white inline-block px-2 py-0.5 rounded text-[11px] font-bold">#1 Best Seller</div>

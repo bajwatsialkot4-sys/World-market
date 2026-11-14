@@ -112,7 +112,8 @@ const Admin: React.FC = () => {
     description: '',
     offer: '',
     sizes: ['S', 'M', 'L', 'XL'],
-    colors: ['Black', 'Navy', 'White']
+    colors: ['Black', 'Navy', 'White'],
+    manualViews: undefined as number | undefined
   });
 
   useEffect(() => {
@@ -183,7 +184,8 @@ const Admin: React.FC = () => {
         stock: 100,
         ratingCount: 0,
         sales: 0,
-        viewers: 0
+        viewers: 0,
+        manualViews: newProduct.manualViews
       });
       setIsAddingProduct(false);
       setNewProduct({
@@ -194,7 +196,8 @@ const Admin: React.FC = () => {
         description: '',
         offer: '',
         sizes: ['S', 'M', 'L', 'XL'],
-        colors: ['Black', 'Navy', 'White']
+        colors: ['Black', 'Navy', 'White'],
+        manualViews: undefined
       });
       alert('Product published to Cloud Firestore successfully!');
     } catch (err: any) {
@@ -2031,10 +2034,15 @@ const Admin: React.FC = () => {
                       </div>
                       <span className="text-xl font-black tracking-tighter">{formatPrice(product.price)}</span>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       {product.badges?.map((badge, idx) => (
                         <span key={idx} className="bg-gray-100 text-[8px] font-black px-2 py-1 rounded uppercase tracking-widest">{badge}</span>
                       ))}
+                      {typeof product.manualViews === 'number' && (
+                        <span className="bg-blue-50 text-blue-600 text-[8px] font-black px-2 py-1 rounded uppercase tracking-widest inline-flex items-center gap-1">
+                          <Eye size={10} /> {product.manualViews.toLocaleString()} views
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2115,6 +2123,45 @@ const Admin: React.FC = () => {
                         value={newProduct.offer || ''}
                         onChange={e => setNewProduct({...newProduct, offer: e.target.value})}
                       />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest flex items-center gap-1.5">
+                        <Eye size={12} className="text-blue-600" />
+                        <span>Product Views</span>
+                      </label>
+                      <input 
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="e.g. 100, 500, 1,000, 2,000, 5,000"
+                        className="w-full bg-gray-50 border p-4 rounded-xl font-bold text-sm"
+                        value={newProduct.manualViews !== undefined ? newProduct.manualViews.toLocaleString() : ''}
+                        onChange={e => {
+                          const digits = e.target.value.replace(/[^\d]/g, '');
+                          setNewProduct({
+                            ...newProduct,
+                            manualViews: digits === '' ? undefined : parseInt(digits, 10)
+                          });
+                        }}
+                      />
+                      <div className="flex flex-wrap gap-1.5">
+                        {[100, 500, 1000, 2000, 5000].map(preset => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => setNewProduct({...newProduct, manualViews: preset})}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all border ${
+                              newProduct.manualViews === preset
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                            }`}
+                          >
+                            {preset.toLocaleString()}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">
+                        Display count shown on product page (separate from visitor analytics)
+                      </p>
                     </div>
                     <div className="pt-6">
                       <button type="submit" className="w-full bg-blue-600 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl hover:bg-black transition-all">Publish to Global Store</button>
@@ -2210,6 +2257,45 @@ const Admin: React.FC = () => {
                         value={editProductData.offer || ''}
                         onChange={e => setEditProductData({...editProductData, offer: e.target.value})}
                       />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest flex items-center gap-1.5">
+                        <Eye size={12} className="text-purple-600" />
+                        <span>Product Views</span>
+                      </label>
+                      <input 
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="e.g. 100, 500, 1,000, 2,000, 5,000"
+                        className="w-full bg-gray-50 border p-4 rounded-xl font-bold text-sm"
+                        value={editProductData.manualViews !== undefined ? editProductData.manualViews.toLocaleString() : ''}
+                        onChange={e => {
+                          const digits = e.target.value.replace(/[^\d]/g, '');
+                          setEditProductData({
+                            ...editProductData,
+                            manualViews: digits === '' ? undefined : parseInt(digits, 10)
+                          });
+                        }}
+                      />
+                      <div className="flex flex-wrap gap-1.5">
+                        {[100, 500, 1000, 2000, 5000].map(preset => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => setEditProductData({...editProductData, manualViews: preset})}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all border ${
+                              editProductData.manualViews === preset
+                                ? 'bg-purple-600 text-white border-purple-600'
+                                : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                            }`}
+                          >
+                            {preset.toLocaleString()}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">
+                        Display count shown on product page (preserved across other edits; separate from visitor analytics)
+                      </p>
                     </div>
                     <div className="pt-6">
                       <button type="submit" className="w-full bg-purple-600 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl hover:bg-black transition-all">Save Changes</button>

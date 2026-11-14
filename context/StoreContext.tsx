@@ -122,6 +122,10 @@ export const sanitizeProduct = (docId: string, data: Record<string, any>): Produ
     sellerId: data.sellerId,
     sales: Number(data.sales) || 0,
     viewers: Number(data.viewers) || 0,
+    manualViews:
+      data.manualViews !== undefined && data.manualViews !== null && data.manualViews !== '' && !isNaN(Number(data.manualViews))
+        ? Math.max(0, Math.floor(Number(data.manualViews)))
+        : undefined,
     metaTitle: data.metaTitle,
     metaDescription: data.metaDescription,
     metaKeywords: data.metaKeywords,
@@ -627,12 +631,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const addProduct = async (newP: Omit<Product, 'id' | 'datePosted'>) => {
     try {
       const docRef = doc(collection(db, 'products'));
-      const productData = {
+      const productData: Record<string, any> = {
         ...newP,
         category: normalizeCategory(newP.category || ''),
         id: docRef.id,
         datePosted: new Date().toISOString()
       };
+      if (newP.manualViews !== undefined && newP.manualViews !== null && !isNaN(Number(newP.manualViews))) {
+        productData.manualViews = Math.max(0, Math.floor(Number(newP.manualViews)));
+      } else {
+        delete productData.manualViews;
+      }
       await setDoc(docRef, sanitizeFirestoreData(productData));
     } catch (e) {
       console.error("Error adding product:", e);
@@ -643,11 +652,26 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const updateProduct = async (id: string, updatedP: Partial<Product>) => {
     try {
       const docRef = doc(db, 'products', id);
-      const finalUpdate = { ...updatedP };
+      const finalUpdate: Record<string, any> = { ...updatedP };
       if (finalUpdate.category) {
         finalUpdate.category = normalizeCategory(finalUpdate.category);
       }
-      await updateDoc(docRef, sanitizeFirestoreData(finalUpdate));
+      if ('manualViews' in updatedP) {
+        if (updatedP.manualViews !== undefined && updatedP.manualViews !== null && !isNaN(Number(updatedP.manualViews))) {
+          finalUpdate.manualViews = Math.max(0, Math.floor(Number(updatedP.manualViews)));
+        } else {
+          finalUpdate.manualViews = null;
+        }
+      }
+      try {
+        await updateDoc(docRef, sanitizeFirestoreData(finalUpdate));
+      } catch (err: any) {
+        if (err?.code === 'not-found' || err?.message?.includes('No document to update')) {
+          await setDoc(docRef, sanitizeFirestoreData(finalUpdate), { merge: true });
+        } else {
+          throw err;
+        }
+      }
     } catch (e) {
       console.error("Error updating product:", e);
       throw e;

@@ -51,6 +51,7 @@ export interface Product {
   sellerId?: string;
   sales?: number;
   viewers?: number;
+  manualViews?: number;
   saleEndsAt?: string;
   metaTitle?: string;
   metaDescription?: string;
