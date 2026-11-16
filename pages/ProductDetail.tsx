@@ -45,6 +45,55 @@ const ProductDetail: React.FC = () => {
   const product = useMemo(() => {
     return products.find(p => p.id === productId) || directProduct;
   }, [products, productId, directProduct]);
+
+  const isRoyalBluePuffer = useMemo(() => {
+    return (product?.name || '').trim().replace(/\s+/g, ' ').toUpperCase() === 'ROYAL BLUE SHINE BUBBLE PUFFER JACKET';
+  }, [product?.name]);
+
+  const reviewStats = useMemo(() => {
+    const realReviews = Array.isArray(product?.reviews) ? product.reviews : [];
+    const sampleReviews = isRoyalBluePuffer ? ROYAL_BLUE_PUFFER_SAMPLE_REVIEWS : [];
+    const combinedReviews = [...realReviews, ...sampleReviews];
+
+    if (isRoyalBluePuffer && combinedReviews.length > 0) {
+      const avg = combinedReviews.reduce((sum, r) => sum + Number(r.rating || 0), 0) / combinedReviews.length;
+      const roundedRating = Number(avg.toFixed(1));
+      const filledStars = Math.round(roundedRating);
+      const breakdown: Record<number, number> = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+      combinedReviews.forEach(r => {
+        const s = Math.min(5, Math.max(1, Math.round(Number(r.rating || 5))));
+        breakdown[s] = (breakdown[s] || 0) + 1;
+      });
+      const percentages: Record<number, number> = {
+        5: Math.round((breakdown[5] / combinedReviews.length) * 100),
+        4: Math.round((breakdown[4] / combinedReviews.length) * 100),
+        3: Math.round((breakdown[3] / combinedReviews.length) * 100),
+        2: Math.round((breakdown[2] / combinedReviews.length) * 100),
+        1: Math.round((breakdown[1] / combinedReviews.length) * 100),
+      };
+      const label =
+        realReviews.length > 0
+          ? `${realReviews.length} ratings · ${sampleReviews.length} Sample Reviews`
+          : `${sampleReviews.length} Sample Reviews`;
+      return {
+        ratingValue: roundedRating,
+        filledStars,
+        countLabel: label,
+        percentages,
+      };
+    }
+
+    const baseRating = Number(product?.rating || 5);
+    const fallbackCount = realReviews.length > 0
+      ? realReviews.length
+      : Number(((product?.sales || 0) * 1.5).toFixed(0));
+    return {
+      ratingValue: baseRating,
+      filledStars: Math.floor(baseRating),
+      countLabel: `${fallbackCount} ratings`,
+      percentages: { 5: 85, 4: 10, 3: 5, 2: 5, 1: 5 } as Record<number, number>,
+    };
+  }, [product, isRoyalBluePuffer]);
   
   const [selectedImage, setSelectedImage] = useState(product?.image || '');
   const [selectedSize, setSelectedSize] = useState(product?.sizes?.[0] || '');
@@ -291,17 +340,21 @@ Secure international payment confirmation.`;
               <h1 className="text-2xl font-medium text-gray-900 leading-tight mb-2 tracking-tight">{product.name}</h1>
               <div className="flex flex-wrap items-center gap-2 mb-1">
                 <div className="flex items-center">
-                  <span className="text-sm font-bold mr-1 text-gray-900">{product.rating}</span>
+                  <span className="text-sm font-bold mr-1 text-gray-900">{reviewStats.ratingValue}</span>
                   <div className="flex text-[#ffa41c]">
                     {[...Array(5)].map((_, i) => (
-                      <Star key={i} size={16} fill={i < Math.floor(Number(product.rating)) ? 'currentColor' : 'none'} />
+                      <Star key={i} size={16} fill={i < reviewStats.filledStars ? 'currentColor' : 'none'} />
                     ))}
                   </div>
                 </div>
                 <span className="text-gray-300">|</span>
-                <span className="text-sm text-[#007185] hover:text-[#c45500] hover:underline cursor-pointer">
-                  {((product.sales || 0) * 1.5).toFixed(0)} ratings
-                </span>
+                <button
+                  type="button"
+                  onClick={() => document.getElementById('reviews-section')?.scrollIntoView({ behavior: 'smooth' })}
+                  className="text-sm text-[#007185] hover:text-[#c45500] hover:underline cursor-pointer"
+                >
+                  {reviewStats.countLabel}
+                </button>
                 {typeof product.manualViews === 'number' && (
                   <>
                     <span className="text-gray-300">|</span>
@@ -465,20 +518,22 @@ Secure international payment confirmation.`;
         </div>
 
         {/* Reviews Section */}
-        <div className="mt-24 pt-24 border-t border-gray-100">
+        <div id="reviews-section" className="mt-24 pt-24 border-t border-gray-100">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-16">
             <div className="lg:col-span-4">
               <h2 className="text-3xl font-black uppercase italic tracking-tighter mb-6">Customer <span className="text-blue-600">Reviews</span></h2>
               <div className="space-y-4">
                 <div className="flex items-center gap-4">
-                  <span className="text-5xl font-black tracking-tighter">{product.rating}</span>
+                  <span className="text-5xl font-black tracking-tighter">{reviewStats.ratingValue}</span>
                   <div>
                     <div className="flex items-center gap-1 text-yellow-400">
                       {[...Array(5)].map((_, i) => (
-                        <Star key={i} size={16} fill={i < Math.floor(Number(product.rating)) ? 'currentColor' : 'none'} />
+                        <Star key={i} size={16} fill={i < reviewStats.filledStars ? 'currentColor' : 'none'} />
                       ))}
                     </div>
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">Global Average Rating</p>
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">
+                      {isRoyalBluePuffer ? `${reviewStats.countLabel} (Not Verified)` : 'Global Average Rating'}
+                    </p>
                   </div>
                 </div>
                 
@@ -489,10 +544,10 @@ Secure international payment confirmation.`;
                         <div className="flex-grow h-2 bg-gray-100 rounded-full overflow-hidden">
                           <div 
                             className="h-full bg-yellow-400 rounded-full" 
-                            style={{ width: `${star === 5 ? 85 : (star === 4 ? 10 : 5)}%` }}
+                            style={{ width: `${reviewStats.percentages[star] ?? 0}%` }}
                           ></div>
                         </div>
-                        <span className="text-[10px] font-black text-gray-400 w-8">{star === 5 ? '85%' : (star === 4 ? '10%' : '5%')}</span>
+                        <span className="text-[10px] font-black text-gray-400 w-8">{reviewStats.percentages[star] ?? 0}%</span>
                       </div>
                     ))}
                   </div>
