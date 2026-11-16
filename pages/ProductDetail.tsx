@@ -7,8 +7,31 @@ import { ADMIN_WHATSAPP } from '../constants';
 import { getWhatsAppLink } from '../services/routingUtils';
 import { db } from '../services/firebase';
 import { doc, getDoc } from 'firebase/firestore';
-import { Product } from '../types';
+import { Product, Review } from '../types';
 import { Star, Truck, ShieldCheck, RotateCcw, MessageCircle, ShoppingCart, ChevronRight, Share2, Heart, CheckCircle2, Eye, Clock, Zap } from 'lucide-react';
+
+const ROYAL_BLUE_PUFFER_SAMPLE_REVIEWS: Review[] = [
+  { id: 'sample-rb-1', user: 'Marcus T.', rating: 5, comment: 'The glossy royal blue finish really stands out in person. Super warm without feeling bulky.', date: 'Sample Preview', country: 'USA' },
+  { id: 'sample-rb-2', user: 'Aiden K.', rating: 5, comment: 'Love the puffy silhouette and clean shine. Keeps the winter chill completely out.', date: 'Sample Preview', country: 'UK' },
+  { id: 'sample-rb-3', user: 'Liam R.', rating: 5, comment: 'Great insulation and comfortable fit over a hoodie. Color looks bold and vibrant.', date: 'Sample Preview', country: 'Canada' },
+  { id: 'sample-rb-4', user: 'Omar S.', rating: 5, comment: 'Smooth zipper, neat stitching, and a rich royal blue sheen. Looks even better outdoors.', date: 'Sample Preview', country: 'UAE' },
+  { id: 'sample-rb-5', user: 'Noah V.', rating: 5, comment: 'Lightweight yet surprisingly cozy. Easy everyday jacket for cold mornings.', date: 'Sample Preview', country: 'Germany' },
+  { id: 'sample-rb-6', user: 'Daniel P.', rating: 4, comment: 'Stylish bubble puffer design with nice pocket depth. Fits true to size.', date: 'Sample Preview', country: 'Australia' },
+  { id: 'sample-rb-7', user: 'Tariq M.', rating: 5, comment: 'The shine fabric gives it a premium streetwear vibe. Very happy with the look.', date: 'Sample Preview', country: 'UK' },
+  { id: 'sample-rb-8', user: 'Ethan L.', rating: 5, comment: 'Soft inner lining and solid loft in the baffles. Keeps heat in effortlessly.', date: 'Sample Preview', country: 'USA' },
+  { id: 'sample-rb-9', user: 'Lucas B.', rating: 5, comment: 'Vibrant royal blue shade that pairs well with black joggers or denim.', date: 'Sample Preview', country: 'France' },
+  { id: 'sample-rb-10', user: 'Zayn H.', rating: 5, comment: 'Warm collar, sturdy cuffs, and an eye-catching glossy finish.', date: 'Sample Preview', country: 'Canada' },
+  { id: 'sample-rb-11', user: 'Ryan C.', rating: 4, comment: 'Puffy, comfortable, and light on the shoulders. Great cold-weather layer.', date: 'Sample Preview', country: 'USA' },
+  { id: 'sample-rb-12', user: 'Hamza A.', rating: 5, comment: 'Clean craftsmanship and bold color pop. Definitely turns heads.', date: 'Sample Preview', country: 'UAE' },
+  { id: 'sample-rb-13', user: 'Oliver W.', rating: 5, comment: 'Blocks wind nicely and holds its puffy shape right out of the box.', date: 'Sample Preview', country: 'Netherlands' },
+  { id: 'sample-rb-14', user: 'Jason D.', rating: 5, comment: 'Love how bright the royal blue looks under sunlight. Warm and practical.', date: 'Sample Preview', country: 'USA' },
+  { id: 'sample-rb-15', user: 'Kieran F.', rating: 4, comment: 'Snug fit around the waist and wrists to trap warmth. Very comfortable.', date: 'Sample Preview', country: 'Ireland' },
+  { id: 'sample-rb-16', user: 'Samir N.', rating: 5, comment: 'Sharp winter staple. The glossy shell wipes clean easily after light drizzle.', date: 'Sample Preview', country: 'UK' },
+  { id: 'sample-rb-17', user: 'Tyler G.', rating: 5, comment: 'Super plush padding and smooth zip closure. Feels durable and well made.', date: 'Sample Preview', country: 'USA' },
+  { id: 'sample-rb-18', user: 'Mateo R.', rating: 5, comment: 'Standout royal blue tone with a modern puffer cut. Cozy all day long.', date: 'Sample Preview', country: 'Spain' },
+  { id: 'sample-rb-19', user: 'Bilal K.', rating: 5, comment: 'Warmth and style in one jacket. Fits nicely without restricting movement.', date: 'Sample Preview', country: 'Germany' },
+  { id: 'sample-rb-20', user: 'Chris J.', rating: 5, comment: 'Rich shine finish, thick puffiness, and dependable cold-weather comfort.', date: 'Sample Preview', country: 'Canada' },
+];
 
 const ProductDetail: React.FC = () => {
   const { productId, showName: pathShowName } = useParams();
@@ -509,9 +532,56 @@ Secure international payment confirmation.`;
                     <button className="text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-black">Report</button>
                   </div>
                 </div>
-              )) : (
+              )) : (product.name || '').trim().replace(/\s+/g, ' ').toUpperCase() !== 'ROYAL BLUE SHINE BUBBLE PUFFER JACKET' ? (
                 <p className="text-gray-400 font-bold uppercase text-[10px] tracking-widest">No reviews yet for this product.</p>
+              ) : null}
+
+              {(product.name || '').trim().replace(/\s+/g, ' ').toUpperCase() === 'ROYAL BLUE SHINE BUBBLE PUFFER JACKET' && (
+                <div className="space-y-8">
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+                    <p className="text-xs font-black uppercase tracking-wider text-amber-900">
+                      Sample Reviews — Not Verified Customer Reviews
+                    </p>
+                    <p className="text-xs text-amber-800 mt-1">
+                      The 20 comments below are illustrative sample reviews only and do not represent real customer purchases or verified feedback.
+                    </p>
+                  </div>
+
+                  <div className="space-y-10">
+                    {ROYAL_BLUE_PUFFER_SAMPLE_REVIEWS.map(review => (
+                      <div key={review.id} className="space-y-3 border-b border-gray-100 pb-6 last:border-b-0 animate-fadeIn">
+                        <div className="flex flex-wrap justify-between items-start gap-2">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center font-black text-xs text-gray-500">
+                              {review.user?.[0] || 'U'}
+                            </div>
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h5 className="text-xs font-black uppercase tracking-tight">{review.user}</h5>
+                                {review.country && (
+                                  <span className="text-[8px] font-bold text-gray-400 uppercase tracking-widest bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">{review.country}</span>
+                                )}
+                                <span className="text-[9px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                                  Sample Reviews — Not Verified Customer Reviews
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 text-yellow-400 mt-1">
+                                {[...Array(5)].map((_, i) => (
+                                  <Star key={i} size={10} fill={i < review.rating ? 'currentColor' : 'none'} />
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <p className="text-sm text-gray-600 font-medium leading-relaxed">
+                          "{review.comment}"
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
+
               <button className="w-full py-4 border-2 border-dashed border-gray-200 rounded-2xl text-[10px] font-black uppercase tracking-[0.3em] text-gray-400 hover:border-blue-600 hover:text-blue-600 transition-all">
                 Load More Reviews
               </button>
