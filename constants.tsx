@@ -1538,7 +1538,37 @@ const NEW_SPORT_UNIFORMS: Product[] = SPORT_UNIFORM_IMAGES.map((img, idx) => ({
   tags: ['jersey', 'sports', 'teamwear']
 }));
 
+const FEATURED_ROYAL_BLUE_PUFFER: Product = {
+  id: 'royal-blue-shine-bubble-puffer-jacket',
+  name: 'ROYAL BLUE SHINE BUBBLE PUFFER JACKET - W-LORD MARKET PREMIUM WINTER 2026',
+  category: 'jacket',
+  price: 105.00,
+  rating: 5.0,
+  ratingCount: 256,
+  stock: 100,
+  description: 'Premium Shine Bubble Puffer Jacket in Royal Blue by W-LORD MARKET. Water-resistant high-shine fabric with ultra-warm puff insulation. Signature gold metallic W-LORD shield logo on chest. Perfect for USA winter street style with a unisex oversized fit. Limited Winter Collection 2026 featuring Water Repellent, Windproof, Heavy Puff Insulation, and Luxury Gold Logo Embroidery.',
+  image: 'https://res.cloudinary.com/dsnpq33e5/image/upload/v1793531823/IMG-20261101-WA9407_gx1qec.jpg',
+  images: ['https://res.cloudinary.com/dsnpq33e5/image/upload/v1793531823/IMG-20261101-WA9407_gx1qec.jpg'],
+  datePosted: '2026-11-01T00:00:00.000Z',
+  fabric: 'Water-Resistant High-Shine Nylon & Heavy Puff Insulation',
+  quality: 'Export Quality',
+  sizes: ['S', 'M', 'L', 'XL', 'XXL'],
+  colors: ['Royal Blue Shine'],
+  shippingCountry: 'Worldwide',
+  sellerId: 'seller-1',
+  sales: 256,
+  viewers: 0,
+  manualViews: 5010,
+  badges: ['Limited Winter Collection 2026', 'Best Seller'],
+  tags: ['jacket', 'puffer jacket', 'royal blue', 'shine bubble puffer', 'winter 2026', 'w-lord', 'street style'],
+  metaTitle: 'ROYAL BLUE SHINE BUBBLE PUFFER JACKET - W-LORD MARKET PREMIUM WINTER 2026',
+  metaDescription: 'Premium Shine Bubble Puffer Jacket in Royal Blue by W-LORD MARKET. Water-resistant high-shine fabric, ultra-warm puff insulation, gold metallic W-LORD shield logo, unisex oversized fit.',
+  metaKeywords: 'royal blue puffer jacket, shine bubble puffer, w-lord jacket, winter 2026 jacket, water repellent puffer, luxury gold logo jacket',
+  imageAlt: 'ROYAL BLUE SHINE BUBBLE PUFFER JACKET - W-LORD MARKET PREMIUM WINTER 2026'
+};
+
 export const PRODUCTS: Product[] = [
+  FEATURED_ROYAL_BLUE_PUFFER,
   ...NEW_HOODIES,
   ...NEW_TRACKSUITS,
   ...NEW_POLOS,

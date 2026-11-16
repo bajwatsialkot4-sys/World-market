@@ -7,31 +7,9 @@ import { ADMIN_WHATSAPP } from '../constants';
 import { getWhatsAppLink } from '../services/routingUtils';
 import { db } from '../services/firebase';
 import { doc, getDoc } from 'firebase/firestore';
-import { Product, Review } from '../types';
+import { Product } from '../types';
+import { ROYAL_BLUE_PUFFER_SAMPLE_REVIEWS } from '../services/sampleReviews';
 import { Star, Truck, ShieldCheck, RotateCcw, MessageCircle, ShoppingCart, ChevronRight, Share2, Heart, CheckCircle2, Eye, Clock, Zap } from 'lucide-react';
-
-const ROYAL_BLUE_PUFFER_SAMPLE_REVIEWS: Review[] = [
-  { id: 'sample-rb-1', user: 'Marcus T.', rating: 5, comment: 'The glossy royal blue finish really stands out in person. Super warm without feeling bulky.', date: 'Sample Preview', country: 'USA' },
-  { id: 'sample-rb-2', user: 'Aiden K.', rating: 5, comment: 'Love the puffy silhouette and clean shine. Keeps the winter chill completely out.', date: 'Sample Preview', country: 'UK' },
-  { id: 'sample-rb-3', user: 'Liam R.', rating: 5, comment: 'Great insulation and comfortable fit over a hoodie. Color looks bold and vibrant.', date: 'Sample Preview', country: 'Canada' },
-  { id: 'sample-rb-4', user: 'Omar S.', rating: 5, comment: 'Smooth zipper, neat stitching, and a rich royal blue sheen. Looks even better outdoors.', date: 'Sample Preview', country: 'UAE' },
-  { id: 'sample-rb-5', user: 'Noah V.', rating: 5, comment: 'Lightweight yet surprisingly cozy. Easy everyday jacket for cold mornings.', date: 'Sample Preview', country: 'Germany' },
-  { id: 'sample-rb-6', user: 'Daniel P.', rating: 4, comment: 'Stylish bubble puffer design with nice pocket depth. Fits true to size.', date: 'Sample Preview', country: 'Australia' },
-  { id: 'sample-rb-7', user: 'Tariq M.', rating: 5, comment: 'The shine fabric gives it a premium streetwear vibe. Very happy with the look.', date: 'Sample Preview', country: 'UK' },
-  { id: 'sample-rb-8', user: 'Ethan L.', rating: 5, comment: 'Soft inner lining and solid loft in the baffles. Keeps heat in effortlessly.', date: 'Sample Preview', country: 'USA' },
-  { id: 'sample-rb-9', user: 'Lucas B.', rating: 5, comment: 'Vibrant royal blue shade that pairs well with black joggers or denim.', date: 'Sample Preview', country: 'France' },
-  { id: 'sample-rb-10', user: 'Zayn H.', rating: 5, comment: 'Warm collar, sturdy cuffs, and an eye-catching glossy finish.', date: 'Sample Preview', country: 'Canada' },
-  { id: 'sample-rb-11', user: 'Ryan C.', rating: 4, comment: 'Puffy, comfortable, and light on the shoulders. Great cold-weather layer.', date: 'Sample Preview', country: 'USA' },
-  { id: 'sample-rb-12', user: 'Hamza A.', rating: 5, comment: 'Clean craftsmanship and bold color pop. Definitely turns heads.', date: 'Sample Preview', country: 'UAE' },
-  { id: 'sample-rb-13', user: 'Oliver W.', rating: 5, comment: 'Blocks wind nicely and holds its puffy shape right out of the box.', date: 'Sample Preview', country: 'Netherlands' },
-  { id: 'sample-rb-14', user: 'Jason D.', rating: 5, comment: 'Love how bright the royal blue looks under sunlight. Warm and practical.', date: 'Sample Preview', country: 'USA' },
-  { id: 'sample-rb-15', user: 'Kieran F.', rating: 4, comment: 'Snug fit around the waist and wrists to trap warmth. Very comfortable.', date: 'Sample Preview', country: 'Ireland' },
-  { id: 'sample-rb-16', user: 'Samir N.', rating: 5, comment: 'Sharp winter staple. The glossy shell wipes clean easily after light drizzle.', date: 'Sample Preview', country: 'UK' },
-  { id: 'sample-rb-17', user: 'Tyler G.', rating: 5, comment: 'Super plush padding and smooth zip closure. Feels durable and well made.', date: 'Sample Preview', country: 'USA' },
-  { id: 'sample-rb-18', user: 'Mateo R.', rating: 5, comment: 'Standout royal blue tone with a modern puffer cut. Cozy all day long.', date: 'Sample Preview', country: 'Spain' },
-  { id: 'sample-rb-19', user: 'Bilal K.', rating: 5, comment: 'Warmth and style in one jacket. Fits nicely without restricting movement.', date: 'Sample Preview', country: 'Germany' },
-  { id: 'sample-rb-20', user: 'Chris J.', rating: 5, comment: 'Rich shine finish, thick puffiness, and dependable cold-weather comfort.', date: 'Sample Preview', country: 'Canada' },
-];
 
 const ProductDetail: React.FC = () => {
   const { productId, showName: pathShowName } = useParams();
@@ -47,8 +25,12 @@ const ProductDetail: React.FC = () => {
   }, [products, productId, directProduct]);
 
   const isRoyalBluePuffer = useMemo(() => {
-    return (product?.name || '').trim().replace(/\s+/g, ' ').toUpperCase() === 'ROYAL BLUE SHINE BUBBLE PUFFER JACKET';
-  }, [product?.name]);
+    const normalizedName = (product?.name || '').trim().replace(/\s+/g, ' ').toUpperCase();
+    return (
+      product?.id === 'royal-blue-shine-bubble-puffer-jacket' ||
+      normalizedName.startsWith('ROYAL BLUE SHINE BUBBLE PUFFER JACKET')
+    );
+  }, [product?.id, product?.name]);
 
   const reviewStats = useMemo(() => {
     const realReviews = Array.isArray(product?.reviews) ? product.reviews : [];
@@ -57,8 +39,8 @@ const ProductDetail: React.FC = () => {
 
     if (isRoyalBluePuffer && combinedReviews.length > 0) {
       const avg = combinedReviews.reduce((sum, r) => sum + Number(r.rating || 0), 0) / combinedReviews.length;
-      const roundedRating = Number(avg.toFixed(1));
-      const filledStars = Math.round(roundedRating);
+      const roundedRating = avg.toFixed(1);
+      const filledStars = Math.round(Number(roundedRating));
       const breakdown: Record<number, number> = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
       combinedReviews.forEach(r => {
         const s = Math.min(5, Math.max(1, Math.round(Number(r.rating || 5))));
@@ -100,6 +82,7 @@ const ProductDetail: React.FC = () => {
   const [selectedColor, setSelectedColor] = useState(product?.colors?.[0] || '');
   const [quantity, setQuantity] = useState(1);
   const [isZoomed, setIsZoomed] = useState(false);
+  const [visibleSampleCount, setVisibleSampleCount] = useState(20);
 
   // Directly fetch product document if deep-linked and not in local products state yet
   useEffect(() => {
@@ -138,20 +121,15 @@ const ProductDetail: React.FC = () => {
     };
   }, [productId, products]);
 
-  // Sync image, size, and color selections once product data resolves
+  // Sync image, size, color, and sample pagination when switching products
   useEffect(() => {
     if (product) {
-      if (!selectedImage && product.image) {
-        setSelectedImage(product.image);
-      }
-      if (!selectedSize && product.sizes && product.sizes.length > 0) {
-        setSelectedSize(product.sizes[0]);
-      }
-      if (!selectedColor && product.colors && product.colors.length > 0) {
-        setSelectedColor(product.colors[0]);
-      }
+      setSelectedImage(product.image || '');
+      setSelectedSize(product.sizes?.[0] || '');
+      setSelectedColor(product.colors?.[0] || '');
+      setVisibleSampleCount(20);
     }
-  }, [product, selectedImage, selectedSize, selectedColor]);
+  }, [product?.id]);
 
   if (!product) {
     if (isProductsLoading || isDirectLoading) {
@@ -355,12 +333,12 @@ Secure international payment confirmation.`;
                 >
                   {reviewStats.countLabel}
                 </button>
-                {typeof product.manualViews === 'number' && (
+                {typeof (isRoyalBluePuffer && typeof product.manualViews !== 'number' ? 5010 : product.manualViews) === 'number' && (
                   <>
                     <span className="text-gray-300">|</span>
                     <span className="inline-flex items-center gap-1 text-sm text-gray-600 font-medium" data-testid="product-views">
                       <Eye size={14} className="text-gray-500" />
-                      <span>{product.manualViews.toLocaleString()} views</span>
+                      <span>{(isRoyalBluePuffer && typeof product.manualViews !== 'number' ? 5010 : product.manualViews!).toLocaleString()} views</span>
                     </span>
                   </>
                 )}
@@ -393,7 +371,7 @@ Secure international payment confirmation.`;
               {/* Product details table */}
               <div className="grid grid-cols-[100px_1fr] gap-x-4 gap-y-1 text-sm border-t border-gray-100 pt-4">
                  <span className="font-bold text-gray-900">Category</span>
-                 <span>{product.category}</span>
+                 <span className="capitalize">{product.category}</span>
                  <span className="font-bold text-gray-900">Brand</span>
                  <span>{activeSeller ? activeSeller.shopName : 'W-LORD'}</span>
                  <span className="font-bold text-gray-900">Color</span>
@@ -587,23 +565,25 @@ Secure international payment confirmation.`;
                     <button className="text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-black">Report</button>
                   </div>
                 </div>
-              )) : (product.name || '').trim().replace(/\s+/g, ' ').toUpperCase() !== 'ROYAL BLUE SHINE BUBBLE PUFFER JACKET' ? (
+              )) : !isRoyalBluePuffer ? (
                 <p className="text-gray-400 font-bold uppercase text-[10px] tracking-widest">No reviews yet for this product.</p>
               ) : null}
 
-              {(product.name || '').trim().replace(/\s+/g, ' ').toUpperCase() === 'ROYAL BLUE SHINE BUBBLE PUFFER JACKET' && (
+              {isRoyalBluePuffer && (
                 <div className="space-y-8">
-                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
-                    <p className="text-xs font-black uppercase tracking-wider text-amber-900">
-                      Sample Reviews — Not Verified Customer Reviews
-                    </p>
-                    <p className="text-xs text-amber-800 mt-1">
-                      The 20 comments below are illustrative sample reviews only and do not represent real customer purchases or verified feedback.
-                    </p>
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-wider text-amber-900">
+                        Sample Reviews — Not Verified Customer Reviews
+                      </p>
+                      <p className="text-xs text-amber-800 mt-1">
+                        Showing {Math.min(visibleSampleCount, ROYAL_BLUE_PUFFER_SAMPLE_REVIEWS.length)} of {ROYAL_BLUE_PUFFER_SAMPLE_REVIEWS.length} illustrative sample reviews (not verified customer purchases).
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="space-y-10">
-                    {ROYAL_BLUE_PUFFER_SAMPLE_REVIEWS.map(review => (
+                  <div className="space-y-8">
+                    {ROYAL_BLUE_PUFFER_SAMPLE_REVIEWS.slice(0, visibleSampleCount).map(review => (
                       <div key={review.id} className="space-y-3 border-b border-gray-100 pb-6 last:border-b-0 animate-fadeIn">
                         <div className="flex flex-wrap justify-between items-start gap-2">
                           <div className="flex items-center gap-3">
@@ -627,6 +607,7 @@ Secure international payment confirmation.`;
                               </div>
                             </div>
                           </div>
+                          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{review.date}</span>
                         </div>
                         <p className="text-sm text-gray-600 font-medium leading-relaxed">
                           "{review.comment}"
@@ -637,9 +618,19 @@ Secure international payment confirmation.`;
                 </div>
               )}
 
-              <button className="w-full py-4 border-2 border-dashed border-gray-200 rounded-2xl text-[10px] font-black uppercase tracking-[0.3em] text-gray-400 hover:border-blue-600 hover:text-blue-600 transition-all">
-                Load More Reviews
-              </button>
+              {isRoyalBluePuffer && visibleSampleCount < ROYAL_BLUE_PUFFER_SAMPLE_REVIEWS.length ? (
+                <button
+                  type="button"
+                  onClick={() => setVisibleSampleCount(prev => Math.min(prev + 40, ROYAL_BLUE_PUFFER_SAMPLE_REVIEWS.length))}
+                  className="w-full py-4 border-2 border-dashed border-gray-200 rounded-2xl text-[10px] font-black uppercase tracking-[0.3em] text-gray-500 hover:border-blue-600 hover:text-blue-600 transition-all"
+                >
+                  Load More Reviews ({ROYAL_BLUE_PUFFER_SAMPLE_REVIEWS.length - visibleSampleCount} remaining)
+                </button>
+              ) : !isRoyalBluePuffer ? (
+                <button className="w-full py-4 border-2 border-dashed border-gray-200 rounded-2xl text-[10px] font-black uppercase tracking-[0.3em] text-gray-400 hover:border-blue-600 hover:text-blue-600 transition-all">
+                  Load More Reviews
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
