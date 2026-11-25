@@ -189,7 +189,7 @@ interface StoreContextType {
   addSeller: (seller: Omit<SellerInfo, 'id' | 'joinedDate' | 'totalSales' | 'rating' | 'rank' | 'isVerified' | 'verificationStatus'>) => Promise<SellerInfo>;
   updateSeller: (id: string, updates: Partial<SellerInfo>) => Promise<void>;
   deleteSeller: (id: string) => Promise<void>;
-  addSale: (newSale: Omit<SaleRecord, 'id' | 'date'>) => Promise<void>;
+  addSale: (newSale: Omit<SaleRecord, 'id' | 'date'>) => Promise<SaleRecord>;
   updateSaleStatus: (id: string, status: SaleRecord['status']) => Promise<void>;
   deleteSale: (id: string) => Promise<void>;
   archiveSale: (id: string) => Promise<void>;
@@ -751,7 +751,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return data;
   };
 
-  const addSale = async (newSale: Omit<SaleRecord, 'id' | 'date'>) => {
+  const addSale = async (newSale: Omit<SaleRecord, 'id' | 'date'>): Promise<SaleRecord> => {
     try {
       const docRef = doc(collection(db, 'sales'));
       
@@ -764,9 +764,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         color: p.color || 'Default'
       }));
 
-      const saleData = {
+      const confirmationNumber =
+        newSale.orderConfirmationNumber || `WL-${docRef.id.slice(-6).toUpperCase()}`;
+
+      const saleData: SaleRecord = {
         ...newSale,
         id: docRef.id,
+        orderConfirmationNumber: confirmationNumber,
         date: new Date().toISOString(),
         status: newSale.status || 'Pending Payment',
         customerName: newSale.customerName || '',
@@ -777,6 +781,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         customerCountry: newSale.customerCountry || 'N/A',
         customerZip: newSale.customerZip || 'N/A',
         amount: newSale.amount || 0,
+        subtotal: typeof newSale.subtotal === 'number' ? newSale.subtotal : undefined,
+        shippingAmount: typeof newSale.shippingAmount === 'number' ? newSale.shippingAmount : undefined,
         sellerId: newSale.sellerId || 'admin',
         sellerShopName: newSale.sellerShopName || 'Main Admin',
         products: safeProducts
@@ -791,7 +797,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       await addNotification({
         type: 'New Order',
-        title: `Entry: ${saleData.customerName}`,
+        title: `Entry: ${saleData.customerName} (${confirmationNumber})`,
         message: `${sellerInfo} - ${productSummary}`,
         targetId: docRef.id,
         targetRole: 'admin'
@@ -807,6 +813,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           sellerId: saleData.sellerId
         });
       }
+
+      return saleData;
     } catch (error) {
       console.error("Error creating sale:", error);
       throw error;

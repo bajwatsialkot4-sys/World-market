@@ -94,6 +94,9 @@ export interface SaleRecord {
   customerCountry: string;
   customerZip: string;
   amount: number;
+  subtotal?: number;
+  shippingAmount?: number;
+  orderConfirmationNumber?: string;
   date: string;
   status: 'New Order' | 'Processing' | 'Shipped' | 'Completed' | 'Cancelled' | 'Delivered' | 'Pending Payment' | 'Confirmed';
   sellerId?: string;

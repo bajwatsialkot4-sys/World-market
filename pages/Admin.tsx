@@ -1002,7 +1002,10 @@ const Admin: React.FC = () => {
                   <div className="bg-black text-white p-8 flex justify-between items-center">
                     <div>
                       <h2 className="text-3xl font-black italic tracking-tighter uppercase">Order <span className="text-blue-500 underline">Summary</span></h2>
-                      <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest mt-2 px-1">Order ID: #{selectedOrder.id}</p>
+                      <p className="text-gray-400 text-[10px] font-black uppercase tracking-widest mt-2 px-1">
+                        Order ID: #{selectedOrder.id}
+                        {selectedOrder.orderConfirmationNumber ? ` • Ref: ${selectedOrder.orderConfirmationNumber}` : ''}
+                      </p>
                     </div>
                     <button onClick={() => setSelectedOrder(null)} className="bg-white/10 p-2 rounded-full hover:bg-white/20 transition-all text-white"><X size={20} /></button>
                   </div>
@@ -1077,9 +1080,23 @@ const Admin: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="border-t border-gray-100 pt-6 flex justify-between items-center">
-                      <p className="text-lg font-black italic uppercase tracking-tighter">Total Due</p>
-                      <p className="text-3xl font-black italic tracking-tighter text-blue-600">{formatPrice(selectedOrder.amount)}</p>
+                    <div className="border-t border-gray-100 pt-6 space-y-2">
+                      {typeof selectedOrder.subtotal === 'number' && (
+                        <div className="flex justify-between items-center text-xs font-bold text-gray-500 uppercase tracking-wider">
+                          <span>Merchandise Subtotal</span>
+                          <span>{formatPrice(selectedOrder.subtotal)}</span>
+                        </div>
+                      )}
+                      {typeof selectedOrder.shippingAmount === 'number' && (
+                        <div className="flex justify-between items-center text-xs font-bold text-gray-500 uppercase tracking-wider">
+                          <span>Shipping</span>
+                          <span>{selectedOrder.shippingAmount === 0 ? 'FREE ($0.00)' : formatPrice(selectedOrder.shippingAmount)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-center pt-2">
+                        <p className="text-lg font-black italic uppercase tracking-tighter">Total Due</p>
+                        <p className="text-3xl font-black italic tracking-tighter text-blue-600">{formatPrice(selectedOrder.amount)}</p>
+                      </div>
                     </div>
 
                     <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100 space-y-3">

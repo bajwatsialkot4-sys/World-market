@@ -1,16 +1,19 @@
-
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore } from '../context/StoreContext';
-import { ADMIN_WHATSAPP } from '../constants';
-import { getWhatsAppLink } from '../services/routingUtils';
-import { AlertCircle, RefreshCw, ShoppingBag } from 'lucide-react';
+import { SaleRecord } from '../types';
+import { AlertCircle, RefreshCw, ShoppingBag, CheckCircle2, Mail, Truck } from 'lucide-react';
+
+const PAYMENT_INSTRUCTIONS_TEXT =
+  'After placing your order, our team will review your order and send payment instructions and a secure payment link to your registered email address. Your order will be processed after payment is successfully confirmed.';
 
 const Cart: React.FC = () => {
   const { cart, removeFromCart, clearCart, activeShowName, referralCode, activeSeller, addSale } = useStore();
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [cartError, setCartError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [confirmedOrder, setConfirmedOrder] = useState<SaleRecord | null>(null);
   const [customerInfo, setCustomerInfo] = useState({
     name: '',
     email: '',
@@ -27,9 +30,10 @@ const Cart: React.FC = () => {
     const q = typeof item?.quantity === 'number' && !isNaN(item.quantity) && item.quantity > 0 ? item.quantity : 1;
     return acc + (p * q);
   }, 0);
+
+  // Free shipping automatically when merchandise subtotal is strictly over $100 USD
   const shipping = subtotal > 100 ? 0 : (subtotal > 0 ? 15 : 0);
-  const tax = subtotal * 0.08;
-  const total = subtotal + shipping + tax;
+  const total = subtotal + shipping;
 
   const getProductLink = (id: string) => {
     if (activeShowName && !['cart', 'checkout', 'search', 'category'].includes(activeShowName)) {
@@ -41,21 +45,16 @@ const Cart: React.FC = () => {
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    
-    console.log("Preparing to submit order to Firebase...");
-    
+    setSubmitError(null);
+
     const urlParams = new URLSearchParams(window.location.search);
     const referralFromUrl = urlParams.get('seller') || urlParams.get('ref');
     const shopName = referralFromUrl || (activeSeller ? activeSeller.showName : (activeShowName && !activeShowName.includes('?') ? activeShowName : "Main Store"));
     const sellerCode = referralCode || (activeSeller ? activeSeller.id : (referralFromUrl || "Direct"));
-    
-    const orderSummary = cart.map(item => 
-      `Product: ${item.name} (ID: ${item.id})\nSize: ${item.selectedSize || 'N/A'}\nColor: ${item.selectedColor || 'N/A'}\nQuantity: ${item.quantity}\nPrice: $${item.price.toFixed(2)}`
-    ).join('\n\n');
- 
+
     try {
-      const orderData = {
-        products: cart.map(item => ({
+      const orderData: Omit<SaleRecord, 'id' | 'date'> = {
+        products: safeCart.map(item => ({
           productId: item.id,
           name: item.name,
           price: item.price,
@@ -63,62 +62,32 @@ const Cart: React.FC = () => {
           size: item.selectedSize,
           color: item.selectedColor
         })),
-        customerName: customerInfo.name,
-        customerPhone: customerInfo.phone,
-        customerEmail: customerInfo.email,
-        customerAddress: customerInfo.address,
-        customerCity: customerInfo.city,
-        customerCountry: customerInfo.country,
-        customerZip: customerInfo.zipCode,
+        customerName: customerInfo.name.trim(),
+        customerPhone: customerInfo.phone.trim(),
+        customerEmail: customerInfo.email.trim(),
+        customerAddress: customerInfo.address.trim(),
+        customerCity: customerInfo.city.trim(),
+        customerCountry: customerInfo.country.trim(),
+        customerZip: customerInfo.zipCode.trim(),
+        subtotal,
+        shippingAmount: shipping,
         amount: total,
         status: 'Pending Payment' as const,
         sellerId: activeSeller?.id || sellerCode,
         sellerShopName: activeSeller?.shopName || activeSeller?.showName || shopName
       };
 
-      console.log("Order Data Payload:", orderData);
+      // Save submitted order directly to Firebase Firestore & notify Admin
+      const savedOrder = await addSale(orderData);
 
-      // Store order in system
-      await addSale(orderData);
-      console.log("Order saved successfully to Firestore.");
-
-      const message = `NEW ORDER RECEIVED
---------------------------------
-
---- SHOP DETAILS ---
-Shop Name: ${shopName}
-Referral Code: ${sellerCode}
-
---- CUSTOMER DETAILS ---
-Name: ${customerInfo.name}
-Email: ${customerInfo.email}
-Phone: ${customerInfo.phone}
-Address: ${customerInfo.address}, ${customerInfo.city}, ${customerInfo.country}
-Zip Code: ${customerInfo.zipCode}
-
---- ORDER SUMMARY ---
-${orderSummary}
-
---- BILLING ---
-Subtotal: $${subtotal.toFixed(2)}
-Shipping: ${shipping === 0 ? 'FREE' : `$${shipping.toFixed(2)}`}
-Tax: $${tax.toFixed(2)}
-TOTAL: $${total.toFixed(2)}
-
---------------------------------
-Secure manual payment confirmation via WhatsApp.`;
-
-      const waLink = getWhatsAppLink(ADMIN_WHATSAPP, message);
-      
-      setIsSubmitting(false);
-      window.location.href = waLink;
+      setConfirmedOrder(savedOrder);
       clearCart();
       setIsCheckingOut(false);
-      alert("Order success! Order details saved to Cloud & sent to WhatsApp! Our team will provide payment instructions shortly.");
     } catch (error: any) {
-      setIsSubmitting(false);
       console.error("CRITICAL: Order submission failed:", error);
-      alert(`System Error: Could not save order. ${error.message || 'Please check your connection.'}`);
+      setSubmitError(`Could not save your order. ${error?.message || 'Please check your connection and try again.'}`);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -150,6 +119,104 @@ Secure manual payment confirmation via WhatsApp.`;
     );
   }
 
+  if (confirmedOrder) {
+    const orderShipping = typeof confirmedOrder.shippingAmount === 'number' ? confirmedOrder.shippingAmount : 0;
+    const orderSubtotal = typeof confirmedOrder.subtotal === 'number'
+      ? confirmedOrder.subtotal
+      : Math.max(0, confirmedOrder.amount - orderShipping);
+
+    return (
+      <div className="bg-gray-50 min-h-screen py-16 px-4">
+        <div className="max-w-3xl mx-auto bg-white rounded-[2.5rem] shadow-2xl border border-blue-100 p-8 md:p-12 animate-fadeIn">
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 bg-emerald-500 text-white rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-lg shadow-emerald-500/30">
+              <CheckCircle2 size={34} />
+            </div>
+            <div className="inline-block bg-amber-100 text-amber-800 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest mb-3">
+              Status: {confirmedOrder.status}
+            </div>
+            <h1 className="text-3xl md:text-4xl font-black italic uppercase tracking-tighter text-gray-900">
+              Order <span className="text-blue-600 underline">Submitted</span>
+            </h1>
+            <p className="text-xs font-black uppercase tracking-widest text-gray-500 mt-3">
+              Confirmation Number:{' '}
+              <span className="text-blue-600 font-mono">
+                {confirmedOrder.orderConfirmationNumber || `WL-${confirmedOrder.id.slice(-6).toUpperCase()}`}
+              </span>
+            </p>
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5 mb-8 flex items-start gap-3">
+            <Mail className="text-blue-600 shrink-0 mt-0.5" size={20} />
+            <p className="text-xs font-bold text-blue-950 leading-relaxed">
+              {PAYMENT_INSTRUCTIONS_TEXT}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8 text-xs">
+            <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 space-y-1.5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Customer & Delivery Details</p>
+              <p className="font-black text-gray-900 uppercase">{confirmedOrder.customerName}</p>
+              <p className="font-bold text-blue-600">{confirmedOrder.customerEmail}</p>
+              <p className="font-bold text-gray-600">{confirmedOrder.customerPhone}</p>
+              <p className="text-gray-600 pt-1">
+                {confirmedOrder.customerAddress}, {confirmedOrder.customerCity}, {confirmedOrder.customerCountry} {confirmedOrder.customerZip}
+              </p>
+            </div>
+
+            <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 space-y-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-2">Order Totals</p>
+              <div className="flex justify-between font-bold text-gray-600">
+                <span>Subtotal</span>
+                <span>${orderSubtotal.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between font-bold text-gray-600">
+                <span>Shipping</span>
+                <span>{orderShipping === 0 ? 'FREE ($0.00)' : `$${orderShipping.toFixed(2)}`}</span>
+              </div>
+              <div className="flex justify-between font-black text-gray-900 text-base pt-2 border-t border-gray-200">
+                <span>Order Total</span>
+                <span>${confirmedOrder.amount.toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="mb-8">
+            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-3">Ordered Items</p>
+            <div className="space-y-2.5">
+              {confirmedOrder.products.map((item, i) => (
+                <div key={i} className="flex justify-between items-center bg-gray-50 px-4 py-3 rounded-xl border border-gray-100 text-xs">
+                  <div>
+                    <p className="font-black uppercase text-gray-900">{item.name}</p>
+                    <p className="text-[10px] text-gray-500 font-bold uppercase">
+                      Qty: {item.quantity} {item.size ? `• Size: ${item.size}` : ''} {item.color ? `• Color: ${item.color}` : ''}
+                    </p>
+                  </div>
+                  <span className="font-black text-gray-900">${(item.price * item.quantity).toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Link
+              to="/products"
+              className="flex-1 bg-black text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest text-center hover:bg-blue-600 transition-all"
+            >
+              Continue Shopping
+            </Link>
+            <Link
+              to="/"
+              className="flex-1 bg-gray-100 text-gray-800 py-4 rounded-xl font-black text-xs uppercase tracking-widest text-center hover:bg-gray-200 transition-all"
+            >
+              Back to Home
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (safeCart.length === 0) {
     return (
       <div className="min-h-[70vh] flex flex-col items-center justify-center px-4 bg-gray-50">
@@ -167,11 +234,19 @@ Secure manual payment confirmation via WhatsApp.`;
         <h1 className="text-5xl font-black italic tracking-tighter uppercase mb-16 underline decoration-blue-600">Shopping <span className="text-blue-600">Cart</span></h1>
         
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-16 items-start">
-          {/* Item List */}
+          {/* Item List / Checkout Form */}
           <div className="lg:col-span-2 space-y-8">
             {isCheckingOut ? (
               <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl border border-blue-100 animate-fadeIn">
                 <h2 className="text-3xl font-black uppercase italic tracking-tighter mb-8">Shipping <span className="text-blue-600">Details</span></h2>
+
+                {submitError && (
+                  <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs font-bold flex items-center gap-2">
+                    <AlertCircle size={16} className="shrink-0" />
+                    <span>{submitError}</span>
+                  </div>
+                )}
+
                 <form onSubmit={handleCheckout} className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-1">
@@ -257,12 +332,14 @@ Secure manual payment confirmation via WhatsApp.`;
                       className="flex-[2] bg-blue-600 text-white py-5 rounded-2xl font-black text-sm uppercase tracking-[0.2em] shadow-xl shadow-blue-500/20 hover:bg-black transition-all flex items-center justify-center gap-3 disabled:opacity-50"
                     >
                       {isSubmitting && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>}
-                      {isSubmitting ? 'Processing...' : 'Place Order via WhatsApp'}
+                      {isSubmitting ? 'Submitting...' : 'PLACE ORDER'}
                     </button>
                   </div>
-                  <p className="text-center text-[10px] font-bold text-gray-400 uppercase tracking-widest pt-4">
-                    Secure manual payment confirmation via WhatsApp.
-                  </p>
+                  <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 mt-4">
+                    <p className="text-center text-xs font-medium text-gray-600 leading-relaxed">
+                      {PAYMENT_INSTRUCTIONS_TEXT}
+                    </p>
+                  </div>
                 </form>
               </div>
             ) : (
@@ -327,12 +404,20 @@ Secure manual payment confirmation via WhatsApp.`;
               </div>
               <div className="flex justify-between text-sm font-bold uppercase tracking-widest text-gray-400">
                 <span>Shipping</span>
-                <span>{shipping === 0 ? 'FREE' : `$${shipping.toFixed(2)}`}</span>
+                <span className={shipping === 0 ? 'text-emerald-400' : ''}>
+                  {shipping === 0 ? 'FREE ($0.00)' : `$${shipping.toFixed(2)}`}
+                </span>
               </div>
-              <div className="flex justify-between text-sm font-bold uppercase tracking-widest text-gray-400">
-                <span>Estimated Tax</span>
-                <span>${tax.toFixed(2)}</span>
-              </div>
+              {subtotal > 0 && (
+                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-blue-400 pt-1">
+                  <Truck size={14} className="shrink-0" />
+                  <span>
+                    {subtotal > 100
+                      ? 'Free shipping applied on orders over $100'
+                      : 'Free shipping automatically applies on orders over $100'}
+                  </span>
+                </div>
+              )}
             </div>
             <div className="flex justify-between items-end mt-10">
               <span className="text-sm font-black uppercase tracking-widest text-blue-500">Order Total</span>

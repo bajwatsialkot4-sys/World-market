@@ -98,6 +98,20 @@ const Home: React.FC = () => {
         </div>
       </section>
 
+      {/* Free Shipping Promotion Banner */}
+      <section className="bg-blue-600 text-white py-2.5 px-4 border-b border-blue-700">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-4 text-center">
+          <div className="flex items-center gap-2 font-black uppercase text-xs tracking-widest">
+            <Truck size={16} className="shrink-0" />
+            <span>FREE SHIPPING — On Orders Over $100</span>
+          </div>
+          <span className="hidden sm:inline text-blue-200">•</span>
+          <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-blue-100">
+            Shop More • Save More
+          </span>
+        </div>
+      </section>
+
       {/* Hero Section */}
       <section className="relative h-[90vh] flex items-center overflow-hidden bg-black">
         <div className="absolute inset-0">
